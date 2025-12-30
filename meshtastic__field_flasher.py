@@ -21,7 +21,6 @@ def run_cmd(cmd, log_fn):
 
 
 def list_removable_drives_windows():
-    """Return removable drives like ['E:\\', 'F:\\'] using WMIC."""
     try:
         out = subprocess.check_output(
             ["wmic", "logicaldisk", "where", "drivetype=2", "get", "deviceid"],
@@ -39,7 +38,6 @@ def list_removable_drives_windows():
 
 
 def detect_uf2_drives():
-    """Detect UF2 drives by marker files."""
     drives = []
     for d in list_removable_drives_windows():
         try:
@@ -63,7 +61,7 @@ def copy_uf2_to_drive(uf2_path, drive_root, log_fn):
 
 def wait_seconds(sec, log_fn):
     for i in range(sec, 0, -1):
-        log_fn(f"Waiting for reboot... {i}s\r")
+        log_fn(f"Waiting for reboot... {i}s\n")
         time.sleep(1)
     log_fn("\n")
 
@@ -72,34 +70,27 @@ class App:
     def __init__(self, root):
         self.root = root
 
-        # --- Touch-friendly theming ---
-        self.touch_font = font.Font(family="Segoe UI", size=16)
-        self.touch_font_bold = font.Font(family="Segoe UI", size=16, weight="bold")
+        # Touch fonts
+        self.touch_font = font.Font(family="Segoe UI", size=18)
+        self.touch_font_bold = font.Font(family="Segoe UI", size=18, weight="bold")
         self.log_font = font.Font(family="Consolas", size=12)
 
-        root.option_add("*Font", self.touch_font)
+        root.title("Meshtastic Field Flasher (Manual Lat/Lon)")
+        root.geometry("1100x780")
 
+        # ttk style for big buttons
         style = ttk.Style()
-        # For some Windows themes, setting theme helps ttk respect padding better
         try:
             style.theme_use("clam")
         except Exception:
             pass
+        style.configure("Touch.TButton", font=self.touch_font_bold, padding=(28, 18))
 
-        style.configure("Touch.TLabel", font=self.touch_font)
-        style.configure("Touch.TEntry", font=self.touch_font, padding=(10, 10))
-        style.configure("Touch.TCombobox", font=self.touch_font, padding=(10, 10))
-        style.configure("Touch.TButton", font=self.touch_font_bold, padding=(24, 16))
-
-        root.title("Meshtastic Field Flasher (Manual Lat/Lon)")
-        root.geometry("1100x760")
-
-        # Defaults / State
+        # State
         self.uf2_path = tk.StringVar(value=UF2_FILE_PATH if os.path.isfile(UF2_FILE_PATH) else "")
         self.uf2_drive = tk.StringVar()
-
-        self.meshtastic_exe = tk.StringVar(value="meshtastic")  # in PATH
-        self.device_port = tk.StringVar(value="")              # optional, e.g. COM7
+        self.meshtastic_exe = tk.StringVar(value="meshtastic")
+        self.device_port = tk.StringVar(value="")
 
         self.owner = tk.StringVar(value="SNORR TESTRAK01")
         self.owner_short = tk.StringVar(value="MT01")
@@ -109,73 +100,71 @@ class App:
         self._build_ui()
         self.refresh_drives()
 
+    # --- helper: tk.Entry that triggers OSK better on Windows tablets ---
+    def touch_entry(self, parent, textvariable, width):
+        e = tk.Entry(
+            parent,
+            textvariable=textvariable,
+            width=width,
+            font=self.touch_font,
+            relief="solid",
+            bd=1
+        )
+        # Ensure focus is set on tap/click (helps OSK)
+        e.bind("<Button-1>", lambda ev: e.focus_set())
+        e.bind("<FocusIn>", lambda ev: e.icursor("end"))
+        return e
+
     def _build_ui(self):
         frm = ttk.Frame(self.root, padding=16)
         frm.pack(fill="both", expand=True)
 
-        # Grid spacing for fat fingers
         for i in range(0, 10):
-            frm.rowconfigure(i, pad=10)
+            frm.rowconfigure(i, pad=12)
 
         r = 0
-        ttk.Label(frm, text="UF2 Firmware (.uf2):", style="Touch.TLabel").grid(row=r, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.uf2_path, style="Touch.TEntry", width=55).grid(row=r, column=1, sticky="we", padx=10)
+        ttk.Label(frm, text="UF2 Firmware (.uf2):", font=self.touch_font).grid(row=r, column=0, sticky="w")
+        self.touch_entry(frm, self.uf2_path, width=55).grid(row=r, column=1, sticky="we", padx=10)
         ttk.Button(frm, text="Browse…", command=self.pick_uf2, style="Touch.TButton", width=12).grid(row=r, column=2, sticky="we")
 
         r += 1
-        ttk.Label(frm, text="UF2 Device Drive:", style="Touch.TLabel").grid(row=r, column=0, sticky="w")
-        self.drive_combo = ttk.Combobox(frm, textvariable=self.uf2_drive, width=12, values=[], style="Touch.TCombobox")
+        ttk.Label(frm, text="UF2 Device Drive:", font=self.touch_font).grid(row=r, column=0, sticky="w")
+        # Combobox can also fail OSK; but this field isn't typed often. Keep ttk combobox.
+        self.drive_combo = ttk.Combobox(frm, textvariable=self.uf2_drive, width=10, values=[], font=self.touch_font)
         self.drive_combo.grid(row=r, column=1, sticky="w", padx=10)
         ttk.Button(frm, text="Refresh Drives", command=self.refresh_drives, style="Touch.TButton", width=12).grid(row=r, column=2, sticky="we")
 
         r += 1
-        ttk.Label(frm, text="Meshtastic CLI:", style="Touch.TLabel").grid(row=r, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.meshtastic_exe, style="Touch.TEntry", width=30).grid(row=r, column=1, sticky="w", padx=10)
-        ttk.Label(frm, text="Device port (optional):", style="Touch.TLabel").grid(row=r, column=1, sticky="e")
-        ttk.Entry(frm, textvariable=self.device_port, style="Touch.TEntry", width=12).grid(row=r, column=2, sticky="w")
+        ttk.Label(frm, text="Meshtastic CLI:", font=self.touch_font).grid(row=r, column=0, sticky="w")
+        self.touch_entry(frm, self.meshtastic_exe, width=28).grid(row=r, column=1, sticky="w", padx=10)
+        ttk.Label(frm, text="Device port (optional):", font=self.touch_font).grid(row=r, column=1, sticky="e")
+        self.touch_entry(frm, self.device_port, width=10).grid(row=r, column=2, sticky="w")
 
         r += 1
-        ttk.Label(frm, text="Owner (long):", style="Touch.TLabel").grid(row=r, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.owner, style="Touch.TEntry", width=30).grid(row=r, column=1, sticky="w", padx=10)
-        ttk.Label(frm, text="Owner (short):", style="Touch.TLabel").grid(row=r, column=1, sticky="e")
-        ttk.Entry(frm, textvariable=self.owner_short, style="Touch.TEntry", width=12).grid(row=r, column=2, sticky="w")
+        ttk.Label(frm, text="Owner (long):", font=self.touch_font).grid(row=r, column=0, sticky="w")
+        self.touch_entry(frm, self.owner, width=28).grid(row=r, column=1, sticky="w", padx=10)
+        ttk.Label(frm, text="Owner (short):", font=self.touch_font).grid(row=r, column=1, sticky="e")
+        self.touch_entry(frm, self.owner_short, width=10).grid(row=r, column=2, sticky="w")
 
         r += 1
-        ttk.Label(frm, text="Latitude:", style="Touch.TLabel").grid(row=r, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.lat, style="Touch.TEntry", width=16).grid(row=r, column=1, sticky="w", padx=10)
-        ttk.Label(frm, text="Longitude:", style="Touch.TLabel").grid(row=r, column=1, sticky="e")
-        ttk.Entry(frm, textvariable=self.lon, style="Touch.TEntry", width=16).grid(row=r, column=2, sticky="w")
+        ttk.Label(frm, text="Latitude:", font=self.touch_font).grid(row=r, column=0, sticky="w")
+        self.touch_entry(frm, self.lat, width=16).grid(row=r, column=1, sticky="w", padx=10)
+        ttk.Label(frm, text="Longitude:", font=self.touch_font).grid(row=r, column=1, sticky="e")
+        self.touch_entry(frm, self.lon, width=16).grid(row=r, column=2, sticky="w")
 
         r += 1
         btns = ttk.Frame(frm)
         btns.grid(row=r, column=0, columnspan=3, sticky="we", pady=(12, 8))
 
-        ttk.Button(
-            btns,
-            text="FLASH + CONFIGURE",
-            command=self.flash_and_configure,
-            style="Touch.TButton",
-            width=20
-        ).pack(side="left", padx=10, pady=6)
-
-        ttk.Button(
-            btns,
-            text="Configure Only",
-            command=self.configure_only,
-            style="Touch.TButton",
-            width=16
-        ).pack(side="left", padx=10, pady=6)
-
-        ttk.Button(
-            btns,
-            text="Clear Log",
-            command=self.clear_log,
-            style="Touch.TButton",
-            width=12
-        ).pack(side="left", padx=10, pady=6)
+        ttk.Button(btns, text="FLASH + CONFIGURE", command=self.flash_and_configure, style="Touch.TButton", width=20)\
+            .pack(side="left", padx=10, pady=6)
+        ttk.Button(btns, text="Configure Only", command=self.configure_only, style="Touch.TButton", width=16)\
+            .pack(side="left", padx=10, pady=6)
+        ttk.Button(btns, text="Clear Log", command=self.clear_log, style="Touch.TButton", width=12)\
+            .pack(side="left", padx=10, pady=6)
 
         r += 1
-        self.log = tk.Text(frm, height=20, wrap="word", font=self.log_font)
+        self.log = tk.Text(frm, height=18, wrap="word", font=self.log_font)
         self.log.grid(row=r, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
 
         frm.columnconfigure(1, weight=1)
@@ -221,11 +210,9 @@ class App:
         if not owner or not owner_short:
             raise RuntimeError("Owner and Owner Short are required.")
 
-        lat_s = self.lat.get().strip()
-        lon_s = self.lon.get().strip()
         try:
-            float(lat_s)
-            float(lon_s)
+            float(self.lat.get().strip())
+            float(self.lon.get().strip())
         except ValueError:
             raise RuntimeError("Latitude/Longitude must be valid numbers.")
 
@@ -233,26 +220,32 @@ class App:
         self.validate_inputs()
 
         base = self.build_meshtastic_base()
+
         owner = self.owner.get().strip()
         owner_short = self.owner_short.get().strip()
         lat = self.lat.get().strip()
         lon = self.lon.get().strip()
 
-        commands = [
-            base + ["--seturl", SETURL_VALUE],
-            base + ["--set-owner", owner],
-            base + ["--set-owner-short", owner_short],
-            base + ["--set", "neighbor_info.update_interval", "120"],
-            base + ["--set", "neighbor_info.transmit_over_lora", "true"],
-            base + ["--set", "neighbor_info.enabled", "true"],
-            base + ["--set", "device.role", "ROUTER"],
-            base + ["--set", "device.rebroadcast_mode", "ALL"],
-            base + ["--set", "lora.config_ok_to_mqtt", "true"],
-            base + ["--set", "position.fixed_position", "true", "--setlat", lat, "--setlon", lon],
-        ]
+        cmd = (
+            base
+            + [
+                "--seturl", SETURL_VALUE,
+                "--set-owner", owner,
+                "--set-owner-short", owner_short,
+                "--set", "neighbor_info.update_interval", "120",
+                "--set", "neighbor_info.transmit_over_lora", "true",
+                "--set", "neighbor_info.enabled", "true",
+                "--set", "device.role", "ROUTER",
+                "--set", "device.rebroadcast_mode", "ALL",
+                "--set", "lora.config_ok_to_mqtt", "true",
+                "--set", "position.fixed_position", "true",
+                "--setlat", lat,
+                "--setlon", lon,
+            ]
+        )
 
-        for cmd in commands:
-            run_cmd(cmd, self.log_write)
+        run_cmd(cmd, self.log_write)
+
 
     def configure_only(self):
         def worker():
@@ -263,7 +256,6 @@ class App:
             except Exception as e:
                 self.log_write(f"ERROR: {e}\n")
                 messagebox.showerror("Error", str(e))
-
         threading.Thread(target=worker, daemon=True).start()
 
     def flash_and_configure(self):
@@ -287,7 +279,6 @@ class App:
             except Exception as e:
                 self.log_write(f"ERROR: {e}\n")
                 messagebox.showerror("Error", str(e))
-
         threading.Thread(target=worker, daemon=True).start()
 
 
