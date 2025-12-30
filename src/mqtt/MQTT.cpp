@@ -432,8 +432,7 @@ MQTT::MQTT() : concurrency::OSThread("mqtt"), mqttQueue(MAX_MQTT_QUEUE)
         }
 
         if (moduleConfig.mqtt.map_reporting_enabled && moduleConfig.mqtt.has_map_report_settings) {
-            map_position_precision = Default::getConfiguredOrDefault(moduleConfig.mqtt.map_report_settings.position_precision,
-                                                                     default_map_position_precision);
+            map_position_precision = 32;
             map_publish_interval_msecs = Default::getConfiguredOrDefaultMs(
                 moduleConfig.mqtt.map_report_settings.publish_interval_secs, default_map_publish_interval_secs);
         }
@@ -838,11 +837,11 @@ void MQTT::perhapsReportToMap()
 
     // Coerce the map position precision to be within the valid range
     // This removes obtusely large radius and privacy problematic ones from the map
-    if (map_position_precision < 12 || map_position_precision > 15) {
-        LOG_WARN("MQTT Map report position precision %u is out of range, using default %u", map_position_precision,
-                 default_map_position_precision);
-        map_position_precision = default_map_position_precision;
-    }
+    // if (map_position_precision < 12 || map_position_precision > 15) {
+    //     LOG_WARN("MQTT Map report position precision %u is out of range, using default %u", map_position_precision,
+    //              default_map_position_precision);
+    //     map_position_precision = default_map_position_precision;
+    // }
 
     if (Throttle::isWithinTimespanMs(last_report_to_map, map_publish_interval_msecs))
         return;
