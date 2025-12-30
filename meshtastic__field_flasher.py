@@ -5,6 +5,8 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, font
+import ctypes
+from ctypes import wintypes
 
 SETURL_VALUE = r"https://meshtastic.org/e/#CjESIIBUPqT60FhSuxvl2JP2kE7uVHX5ygCrMJ8y8pLb5vXOGgVTTk9SUigBMAE6AgggEhgIARj6ASALKAU4AUAFSAFQHlgjaAHIBgE"
 UF2_FILE_PATH = r"rak4631.uf2"
@@ -20,33 +22,44 @@ def run_cmd(cmd, log_fn):
         raise RuntimeError(f"Command failed (exit {rc})")
 
 
+# Windows drive type constants
+DRIVE_REMOVABLE = 2
+
+GetDriveTypeW = ctypes.windll.kernel32.GetDriveTypeW
+
 def list_removable_drives_windows():
-    try:
-        out = subprocess.check_output(
-            ["wmic", "logicaldisk", "where", "drivetype=2", "get", "deviceid"],
-            text=True,
-            stderr=subprocess.DEVNULL
-        )
-        drives = []
-        for line in out.splitlines():
-            line = line.strip()
-            if line and line.upper().endswith(":"):
-                drives.append(line.upper() + "\\")
-        return drives
-    except Exception:
-        return []
+    """
+    Returns removable drives like ['E:\\', 'F:\\']
+    Uses native Windows API (no WMIC).
+    """
+    drives = []
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+
+    for i in range(26):
+        if bitmask & (1 << i):
+            drive = f"{chr(65 + i)}:\\"
+            dtype = GetDriveTypeW(ctypes.c_wchar_p(drive))
+            if dtype == DRIVE_REMOVABLE:
+                drives.append(drive)
+
+    return drives
 
 
 def detect_uf2_drives():
+    """
+    Detect UF2 drives by presence of UF2 marker files.
+    """
     drives = []
     for d in list_removable_drives_windows():
         try:
-            if os.path.exists(os.path.join(d, "INFO_UF2.TXT")) or os.path.exists(os.path.join(d, "UF2INFO.TXT")):
+            if (
+                os.path.exists(os.path.join(d, "INFO_UF2.TXT"))
+                or os.path.exists(os.path.join(d, "UF2INFO.TXT"))
+            ):
                 drives.append(d)
         except Exception:
             pass
     return drives
-
 
 def copy_uf2_to_drive(uf2_path, drive_root, log_fn):
     if not os.path.isfile(uf2_path) or not uf2_path.lower().endswith(".uf2"):
