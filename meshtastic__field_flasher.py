@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, font
 
 SETURL_VALUE = r"https://meshtastic.org/e/#CjESIIBUPqT60FhSuxvl2JP2kE7uVHX5ygCrMJ8y8pLb5vXOGgVTTk9SUigBMAE6AgggEhgIARj6ASALKAU4AUAFSAFQHlgjaAHIBgE"
-UF2_FILE_PATH = r"E:\firmware\.pio\build\rak4631\firmware-rak4631-2.7.17.280b7d773.uf2"
+UF2_FILE_PATH = r"rak4631.uf2"
 
 
 def run_cmd(cmd, log_fn):
