@@ -291,7 +291,7 @@ int32_t EnvironmentTelemetryModule::runOnce()
 
     moduleConfig.telemetry.environment_measurement_enabled = 1;
     // moduleConfig.telemetry.environment_screen_enabled = 1;
-    moduleConfig.telemetry.environment_update_interval = 15;
+    moduleConfig.telemetry.environment_update_interval = 600;
 
     if (!(moduleConfig.telemetry.environment_measurement_enabled || moduleConfig.telemetry.environment_screen_enabled ||
           ENVIRONMENTAL_TELEMETRY_MODULE_ENABLE)) {
