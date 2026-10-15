@@ -135,8 +135,7 @@ static const uint8_t SCK = PIN_SPI_SCK;
 
 // #define USE_EINK
 
-// Reserve I2C address 0x38 for AHT sensors instead of the optional RAK RGB controller.
-// #define HAS_NCP5623
+// AHT sensors use the optional RAK RGB controller's I2C address.
 
 /*
  * Wire Interfaces
