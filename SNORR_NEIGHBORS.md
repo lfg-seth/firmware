@@ -1,0 +1,73 @@
+# SNORR passive neighbor signal reports
+
+The `snorr/rak-survey` fork adds a companion collector on RAK4631 builds. It retains the targeted AHT sensor fix. Standard GPS, standard NeighborInfo (port 71), its schema and its existing interval clamps remain unchanged.
+
+## Activation and limits
+
+- Compiled into `rak4631` with `USERPREFS_SNORR_NEIGHBOR_SIGNALS=1`. Other targets do not instantiate it by default.
+- Uses the existing `neighbor_info.enabled` setting, disabled by default. Enable it and reboot through the normal configuration workflow. No stored configuration is changed by this source update.
+- `neighbor_info.transmit_over_lora=false` selects local app/MQTT reports; an isolated RAK needs it true to reach a gateway over radio. No automatic role, channel, power or broker changes.
+- Direct receptions on the primary channel only, after normal decoding/duplicate filtering. Require a nonzero nonlocal sender, supported zero-hop metadata, non-MQTT origin, negative valid RSSI and finite valid SNR. RAK's SX126x receive path supplies both readings; **0 dB SNR is valid**. Unknown/relayed senders are omitted rather than attributed to an original source or one-byte relay ID.
+- Store 32 entries by default, replacing the least recently heard when full. `USERPREFS_SNORR_NEIGHBOR_CAPACITY` allows 1–255 at build time. Expire entries after 30 minutes without reception, independent of reporting cadence, using unsigned monotonic age. No wall-clock synchronization needed.
+- Counts are accepted module observations since that entry was created, saturating at uint32 maximum. Duplicates filtered upstream, undecodable packets and excluded traffic do not count. Counts are not RF packet totals or delivery percentages.
+
+## Reporting behavior
+
+The first opportunity is 60–75 seconds after boot. Subsequent opportunities run on a 15-second scheduler tick. Changed observations coalesce; empty reports are suppressed. At most eight rows (152 payload bytes) are sent per opportunity. Larger tables rotate across packets; they continue rotating until entries expire even without new traffic. Rows are read at each report's creation, not a frozen multi-packet snapshot. An omitted row never deletes a link or proves it is unavailable.
+
+Local reports use a minimum 60-second interval plus 0–15 seconds jitter. Radio reports use a minimum 300 seconds plus jitter; the scheduler may add up to 15 seconds. Override `USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS` at build time within 300–3600 seconds. The ordinary NeighborInfo update interval does not control these companion reports. Switching between local and radio mode preserves the applicable minimum cooldown.
+
+Radio reports require a nondefault primary channel, LoRa transmit enabled, a role other than CLIENT_MUTE, and both existing channel/airtime admission checks. Failed admission defers 30 seconds; a later check can defer again. Reports have BACKGROUND priority, no requested ACK and no requested response. No active probes or additional GPS transmissions are generated. Local mode uses `NODENUM_BROADCAST_NO_LORA`; the existing router performs MQTT handling before the radio discards that destination. MQTT still requires its normal connection/uplink settings.
+
+The send is a best-effort enqueue attempt. A report sequence identifies attempts; it does not acknowledge gateway/backend delivery. Congestion, forwarding filters, broker ACLs and radio outages can prevent reception. This build does not add retries or a reliable transport. A stock gateway can export the opaque private payload through its protobuf MQTT path, provided it permits private-port traffic (`CORE_PORTNUMS_ONLY` rejects it); this requires bench verification.
+
+## Version 1 wire contract
+
+Port **256** (`PRIVATE_APP`), payload magic **SNNS**. This is a project-local use of the shared private port, not a global port assignment. All multibyte integers are little endian; signed values use two's complement. There is no struct packing or native-float dependency on the wire.
+
+| Offset | Bytes | Meaning |
+| --- | --- | --- |
+| 0 | 4 | ASCII `SNNS` |
+| 4 | 1 | Version = 1 |
+| 5 | 1 | Flags: bit 0 = table exceeds per-report row cap; bit 1 = capacity eviction occurred during this boot; others zero |
+| 6 | 1 | Rows in this report, 1–8 |
+| 7 | 1 | Current unexpired table count, 1–configured capacity |
+| 8 | 4 | Full observer node ID |
+| 12 | 4 | Random boot identifier (nonzero 31-bit correlation token, not authentication) |
+| 16 | 4 | Report attempt sequence, modulo uint32 |
+| 20 | 4 | `millis()/1000` at encoding; resets at boot and the millisecond timer rollover |
+| 24+16n | 4 | Full heard node ID |
+| 28+16n | 4 | Seconds since this neighbor was heard when report was encoded |
+| 32+16n | 2 | Signed RSSI, dBm |
+| 34+16n | 2 | Signed SNR in quarter dB; divide by 4 |
+| 36+16n | 4 | Accepted observation count for this entry |
+
+Exact payload length must equal `24 + rows * 16`. Every exported row has both readings; missing measurements are not encoded as zero. Consumers must reject unknown versions/flags, malformed lengths/counts and observer IDs inconsistent with packet provenance. Preserve the gateway receipt independently of the observer and heard identities. Age describes the observer's state **at encoding**; mesh/backhaul delay adds age that this payload cannot determine. Never label gateway/backend receipt time as the neighbor's last hearing time. Deduplicate gateway copies by packet/content identity while retaining distinct receipt evidence.
+
+This change supplies firmware reports only. The current portal adapter archives opaque packets but does not decode `SNNS`; connecting these rows to the neighbor table needs a separately tested ingestion change. Do not relabel demo rows as measured data.
+
+## Portable regression checks
+
+From this firmware directory on a host with GCC:
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -DSNORR_STANDALONE_TEST -Isrc test/test_snorr_neighbor_signals/test_main.cpp \
+  -o /tmp/snorr-neighbor-tests
+/tmp/snorr-neighbor-tests
+```
+
+Repeat with `-DUSERPREFS_SNORR_NEIGHBOR_CAPACITY=10` to check nondefault capacity. The test also has a normal Unity/native entry point. These checks cover filtering, actual byte encoding (including zero/negative SNR), update counts, bounded packet rotation, least-recently-heard eviction and expiry across timer rollover. They do not prove RF delivery or runtime.
+
+The module harness compiles the actual module implementation with test doubles for packet transport, airtime, time and settings:
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -DSNORR_STANDALONE_MODULE_TEST -Itest/test_snorr_neighbor_signals/stubs -Isrc \
+  test/test_snorr_neighbor_signals/test_module.cpp -o /tmp/snorr-neighbor-module-tests
+/tmp/snorr-neighbor-module-tests
+```
+
+It checks primary-channel filtering, module enablement, public-channel/transmit/role/both airtime gates, local-only mode, report priority/ACK behavior, minimum cooldowns after a mode change and across timer rollover, and silent expiry. It does not emulate the router, radio or MQTT implementation.
+
+Before rollout: preserve current profiles/keys, identity-check a bench RAK, flash the built image with owner authorization, explicitly configure/read back NeighborInfo settings, then verify private-port receipt through both stock gateways, decoding and reporting/expiry under congestion/outages. Compare passive GPS freshness, airtime and runtime against the stock baseline. Sensor calibration, placement, solar sufficiency and field coverage remain separate measurements.

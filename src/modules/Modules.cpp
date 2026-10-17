@@ -4,6 +4,9 @@
 #include "modules/SystemCommandsModule.h"
 #endif
 #include "modules/StatusLEDModule.h"
+#if USERPREFS_SNORR_NEIGHBOR_SIGNALS
+#include "modules/SnorrNeighborModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
 #include "ReplyBotModule.h"
 #endif
@@ -137,6 +140,10 @@ void setupModules()
 #endif
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
     traceRouteModule = new TraceRouteModule();
+#endif
+#if USERPREFS_SNORR_NEIGHBOR_SIGNALS
+    if (moduleConfig.has_neighbor_info && moduleConfig.neighbor_info.enabled)
+        new SnorrNeighborModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
     if (moduleConfig.has_neighbor_info && moduleConfig.neighbor_info.enabled) {
