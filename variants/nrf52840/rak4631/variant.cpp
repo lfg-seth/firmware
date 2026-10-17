@@ -32,6 +32,12 @@ const uint32_t g_ADigitalPinMap[] = {
 
 void initVariant()
 {
+#if defined(USERPREFS_SNORR_DUMMY_LOAD) && USERPREFS_SNORR_DUMMY_LOAD
+    // RAK19007 AIN1 is P0.31, driving the fitted transistor through a base resistor.
+    digitalWrite(PIN_A1, HIGH);
+    pinMode(PIN_A1, OUTPUT);
+#endif
+
     // LED1 & LED2
     pinMode(PIN_LED1, OUTPUT);
     ledOff(PIN_LED1);
