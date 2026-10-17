@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "repository": "lfg-seth/firmware",
+  "tag": "snorr-rak4631-2.7.26.0b65f2e-pre.1",
+  "target": "rak4631",
+  "version": "2.7.26.0b65f2e",
+  "source": "0b65f2e8444ea2dd3566f61ba2614d6eb33d3fd2",
+  "hardwareVerified": false,
+  "artifacts": [
+    {
+      "name": "firmware-rak4631-2.7.26.0b65f2e.uf2",
+      "bytes": 1518592,
+      "sha256": "59fff11dad4b8c83bfe1fd1b8a13438bf0147dd734db6e2821585b9710791f47"
+    },
+    {
+      "name": "firmware-rak4631-2.7.26.0b65f2e.zip",
+      "bytes": 760213,
+      "sha256": "2658def06a179c49ea77e872f7815a7794d8ca54768d0b9208e964c49842867f"
+    }
+  ]
+}
