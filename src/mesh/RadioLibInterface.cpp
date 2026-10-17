@@ -11,6 +11,11 @@
 #include <pb_decode.h>
 #include <pb_encode.h>
 
+#ifdef SNORR_SNIFFER
+#include "SnorrSniffer.h"
+#include <algorithm>
+#endif
+
 #if ARCH_PORTDUINO
 #include "PortduinoGlue.h"
 #include "meshUtils.h"
@@ -371,7 +376,9 @@ void RadioLibInterface::onNotify(uint32_t notification)
         break;
     case ISR_RX:
         handleReceiveInterrupt();
+#ifndef SNORR_SNIFFER
         startReceive();
+#endif
         setTransmitDelay();
         break;
     case TRANSMIT_DELAY_COMPLETED:
@@ -552,7 +559,31 @@ void RadioLibInterface::handleReceiveInterrupt()
     }
 #endif
 
+#ifdef SNORR_SNIFFER
+    // Capture before routing, duplicate suppression and decryption; failed reads are explicitly untrusted.
+    static uint32_t boot = (uint32_t)random(UINT32_MAX);
+    static uint32_t sequence = 0;
+    memset(&radioBuffer, 0, sizeof(radioBuffer));
+    length = std::min(length, (size_t)MAX_LORA_PAYLOAD_LEN);
+#endif
     int state = iface->readData((uint8_t *)&radioBuffer, length);
+#ifdef SNORR_SNIFFER
+    const uint32_t receivedMs = millis();
+    const int rssi = lround(iface->getRSSI());
+    const float snr = iface->getSNR();
+    startReceive(); // Rearm before serial output so logging does not create a receive blackout.
+    LOG_INFO("SNORR_CFG v=1 fw=%s freq=%.6f bw=%.3f sf=%u cr=%u tx=0", optstr(APP_VERSION), getFreq(), bw, sf, cr);
+    snorr::emitSnifferReception([](const char *line) { LOG_INFO("%s", line); }, boot, ++sequence, receivedMs,
+                                (const uint8_t *)&radioBuffer, length, state, rssi, snr, rxMsec);
+    if (state == RADIOLIB_ERR_NONE) {
+        ++rxGood;
+        airTime->logAirtime(RX_LOG, rxMsec);
+    } else {
+        ++rxBad;
+        airTime->logAirtime(RX_ALL_LOG, rxMsec);
+    }
+    return;
+#endif
 #if ARCH_PORTDUINO
     if (portduino_config.logoutputlevel == level_trace) {
         printBytes("Raw incoming packet: ", (uint8_t *)&radioBuffer, length);
@@ -667,6 +698,10 @@ void RadioLibInterface::setStandby()
 /** start an immediate transmit */
 bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
 {
+#ifdef SNORR_SNIFFER
+    packetPool.release(txp);
+    return false;
+#endif
     /* NOTE: Minimize the actions before startTransmit() to keep the time between
              channel scan and actual transmit as low as possible to avoid collisions. */
     if (disabled || !config.lora.tx_enabled) {
