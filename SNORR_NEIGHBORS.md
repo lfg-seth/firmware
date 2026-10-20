@@ -1,12 +1,13 @@
 # SNORR passive neighbor signal reports
 
-The `snorr/rak-survey` fork adds a companion collector on RAK4631 builds. It retains the targeted AHT sensor fix. Standard GPS, standard NeighborInfo (port 71), its schema and its existing interval clamps remain unchanged.
+The `snorr/rak-survey` fork adds a companion collector on RAK4631 and dedicated Heltec V3 gateway builds. It retains the targeted AHT sensor fix. Standard GPS, standard NeighborInfo (port 71), its schema and its existing interval clamps remain unchanged.
 
 ## Activation and limits
 
-- Compiled into `rak4631` with `USERPREFS_SNORR_NEIGHBOR_SIGNALS=1`. Other targets do not instantiate it by default.
+- Compiled into `rak4631` and `heltec-v3-gateway` with `USERPREFS_SNORR_NEIGHBOR_SIGNALS=1`. Ordinary `heltec-v3` and dedicated `heltec-v3-sniffer` builds do not instantiate it by default.
 - Uses the existing `neighbor_info.enabled` setting, disabled by default. Enable it and reboot through the normal configuration workflow. No stored configuration is changed by this source update.
 - `neighbor_info.transmit_over_lora=false` selects local app/MQTT reports; an isolated RAK needs it true to reach a gateway over radio. No automatic role, channel, power or broker changes.
+- For a receive-only V3 gateway, build `heltec-v3-gateway`, enable `neighbor_info.enabled`, keep `neighbor_info.transmit_over_lora=false`, and preserve `lora.tx_enabled=false`. Existing Wi-Fi/MQTT, encrypted protobuf uplink and primary-channel keys must remain configured. The gateway is the report observer and MQTT gateway; report rows identify the direct senders it heard. Local reports require no radio probes or transmit permission.
 - Direct receptions on the primary channel only, after normal decoding/duplicate filtering. Require a nonzero nonlocal sender, supported zero-hop metadata, non-MQTT origin, negative valid RSSI and finite valid SNR. RAK's SX126x receive path supplies both readings; **0 dB SNR is valid**. Unknown/relayed senders are omitted rather than attributed to an original source or one-byte relay ID.
 - Store 32 entries by default, replacing the least recently heard when full. `USERPREFS_SNORR_NEIGHBOR_CAPACITY` allows 1–255 at build time. Expire entries after 30 minutes without reception, independent of reporting cadence, using unsigned monotonic age. No wall-clock synchronization needed.
 - Counts are accepted module observations since that entry was created, saturating at uint32 maximum. Duplicates filtered upstream, undecodable packets and excluded traffic do not count. Counts are not RF packet totals or delivery percentages.
