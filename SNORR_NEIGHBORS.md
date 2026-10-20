@@ -26,22 +26,22 @@ The send is a best-effort enqueue attempt. A report sequence identifies attempts
 
 Port **256** (`PRIVATE_APP`), payload magic **SNNS**. This is a project-local use of the shared private port, not a global port assignment. All multibyte integers are little endian; signed values use two's complement. There is no struct packing or native-float dependency on the wire.
 
-| Offset | Bytes | Meaning |
-| --- | --- | --- |
-| 0 | 4 | ASCII `SNNS` |
-| 4 | 1 | Version = 1 |
-| 5 | 1 | Flags: bit 0 = table exceeds per-report row cap; bit 1 = capacity eviction occurred during this boot; others zero |
-| 6 | 1 | Rows in this report, 1–8 |
-| 7 | 1 | Current unexpired table count, 1–configured capacity |
-| 8 | 4 | Full observer node ID |
-| 12 | 4 | Random boot identifier (nonzero 31-bit correlation token, not authentication) |
-| 16 | 4 | Report attempt sequence, modulo uint32 |
-| 20 | 4 | `millis()/1000` at encoding; resets at boot and the millisecond timer rollover |
-| 24+16n | 4 | Full heard node ID |
-| 28+16n | 4 | Seconds since this neighbor was heard when report was encoded |
-| 32+16n | 2 | Signed RSSI, dBm |
-| 34+16n | 2 | Signed SNR in quarter dB; divide by 4 |
-| 36+16n | 4 | Accepted observation count for this entry |
+| Offset | Bytes | Meaning                                                                                                           |
+| ------ | ----- | ----------------------------------------------------------------------------------------------------------------- |
+| 0      | 4     | ASCII `SNNS`                                                                                                      |
+| 4      | 1     | Version = 1                                                                                                       |
+| 5      | 1     | Flags: bit 0 = table exceeds per-report row cap; bit 1 = capacity eviction occurred during this boot; others zero |
+| 6      | 1     | Rows in this report, 1–8                                                                                          |
+| 7      | 1     | Current unexpired table count, 1–configured capacity                                                              |
+| 8      | 4     | Full observer node ID                                                                                             |
+| 12     | 4     | Random boot identifier (nonzero 31-bit correlation token, not authentication)                                     |
+| 16     | 4     | Report attempt sequence, modulo uint32                                                                            |
+| 20     | 4     | `millis()/1000` at encoding; resets at boot and the millisecond timer rollover                                    |
+| 24+16n | 4     | Full heard node ID                                                                                                |
+| 28+16n | 4     | Seconds since this neighbor was heard when report was encoded                                                     |
+| 32+16n | 2     | Signed RSSI, dBm                                                                                                  |
+| 34+16n | 2     | Signed SNR in quarter dB; divide by 4                                                                             |
+| 36+16n | 4     | Accepted observation count for this entry                                                                         |
 
 Exact payload length must equal `24 + rows * 16`. Every exported row has both readings; missing measurements are not encoded as zero. Consumers must reject unknown versions/flags, malformed lengths/counts and observer IDs inconsistent with packet provenance. Preserve the gateway receipt independently of the observer and heard identities. Age describes the observer's state **at encoding**; mesh/backhaul delay adds age that this payload cannot determine. Never label gateway/backend receipt time as the neighbor's last hearing time. Deduplicate gateway copies by packet/content identity while retaining distinct receipt evidence.
 
