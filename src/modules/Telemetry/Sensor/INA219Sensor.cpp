@@ -10,25 +10,60 @@
 #ifdef SNORR_INA219_DIAGNOSTICS
 #include <Wire.h>
 
+static bool readINA219Register(uint8_t address, TwoWire *wire, uint8_t reg, uint16_t &value)
+{
+    wire->beginTransmission(address);
+    wire->write(reg);
+    const uint8_t error = wire->endTransmission(false);
+    if (error || wire->requestFrom(address, static_cast<uint8_t>(2)) != 2) {
+        LOG_WARN("[DEBUG-ina219] addr=0x%02x reg=%u i2c_error=%u", address, reg, error);
+        return false;
+    }
+    value = static_cast<uint16_t>(wire->read()) << 8;
+    value |= wire->read();
+    return true;
+}
+
+static bool writeINA219Config(uint8_t address, TwoWire *wire, uint16_t value)
+{
+    wire->beginTransmission(address);
+    wire->write(static_cast<uint8_t>(0));
+    wire->write(static_cast<uint8_t>(value >> 8));
+    wire->write(static_cast<uint8_t>(value));
+    const uint8_t error = wire->endTransmission();
+    if (error)
+        LOG_WARN("[DEBUG-ina219] config_write_error=%u", error);
+    return error == 0;
+}
+
 static void logINA219Registers(uint8_t address, TwoWire *wire, const char *phase)
 {
     uint16_t regs[6] = {};
     for (uint8_t reg = 0; reg < 6; ++reg) {
-        wire->beginTransmission(address);
-        wire->write(reg);
-        const uint8_t error = wire->endTransmission(false);
-        if (error || wire->requestFrom(address, static_cast<uint8_t>(2)) != 2) {
-            LOG_WARN("[DEBUG-ina219] phase=%s addr=0x%02x reg=%u i2c_error=%u", phase, address, reg, error);
+        if (!readINA219Register(address, wire, reg, regs[reg]))
             return;
-        }
-        regs[reg] = static_cast<uint16_t>(wire->read()) << 8;
-        regs[reg] |= wire->read();
     }
     LOG_INFO("[DEBUG-ina219] phase=%s addr=0x%02x cfg=%04x shunt=%04x bus=%04x power=%04x current=%04x cal=%04x", phase, address,
              regs[0], regs[1], regs[2], regs[3], regs[4], regs[5]);
     LOG_INFO("[DEBUG-ina219] shunt_mV=%.3f bus_V=%.3f current_mA=%.3f shunt_R100_mA=%.3f overflow=%u",
              static_cast<int16_t>(regs[1]) * 0.01f, (regs[2] >> 3) * 0.004f, static_cast<int16_t>(regs[4]) * 0.1f,
              static_cast<int16_t>(regs[1]) * 0.1f, regs[2] & 1);
+}
+
+static void logINA219SingleShot(uint8_t address, TwoWire *wire)
+{
+    uint16_t config = 0;
+    if (!readINA219Register(address, wire, 0, config))
+        return;
+    // A completed triggered conversion holds its results until the next trigger.
+    if (writeINA219Config(address, wire, (config & ~7U) | 3U)) {
+        delay(3);
+        logINA219Registers(address, wire, "single1");
+        logINA219Registers(address, wire, "single2");
+        logINA219Registers(address, wire, "single3");
+    }
+    writeINA219Config(address, wire, config);
+    delay(3);
 }
 #endif
 
@@ -64,6 +99,7 @@ bool INA219Sensor::getMetrics(meshtastic_Telemetry *measurement)
 #ifdef SNORR_INA219_DIAGNOSTICS
     const auto sensor = nodeTelemetrySensorsMap[sensorType];
     logINA219Registers(sensor.first, sensor.second, "before");
+    logINA219SingleShot(sensor.first, sensor.second);
 #endif
     const float voltage = ina219.getBusVoltage_V();
     if (!ina219.success())

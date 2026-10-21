@@ -5,10 +5,16 @@ The owner authorized diagnostic flashing of R004 on 2026-10-21 for
 Build `pio run -e rak4631-ina219-debug`. Ordinary targets omit this logging.
 
 Each INA219 telemetry sample logs registers 0–5 before and after the normal
-Adafruit reads, including I2C transport failures. The probe never writes
-sensor registers; the normal library still refreshes its calibration register.
-Reads are sequential while conversion continues, so this is not an atomic
-snapshot. Inspect multiple samples before comparing adjacent conversions.
+Adafruit reads, including I2C transport failures. It also temporarily selects
+triggered shunt-plus-bus conversion, waits 3 ms for the driver's 12-bit preset,
+and reads the held registers three times. It restores the original sensor
+configuration before the normal telemetry reads. The normal library still
+refreshes its calibration register. No calibration correction is applied.
+
+Continuous snapshots are sequential while conversion continues. The three
+`single` snapshots should retain shunt/current/voltage words; reading power
+clears the bus conversion-ready flag. Changed held values distinguish a read
+or device problem from changing inputs during ordinary continuous conversion.
 
 `[DEBUG-ina219]` reports raw configuration, signed shunt/current, bus, power
 and calibration words. The displayed conversions assume the existing
