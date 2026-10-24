@@ -23,5 +23,7 @@ class SnorrNeighborModule : public SinglePortModule, private concurrency::OSThre
     uint32_t sequence = 0;
     uint32_t lastReportMs = 0;
     uint32_t reportIntervalMs = 0;
+    uint32_t reportJitterMs = 0;
+    bool hasReported = false;
 };
 #endif

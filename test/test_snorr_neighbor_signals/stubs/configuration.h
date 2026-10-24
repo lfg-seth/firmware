@@ -43,6 +43,11 @@ inline struct {
         bool enabled = true;
         bool transmit_over_lora = true;
     } neighbor_info;
+    struct {
+        uint32_t device_update_interval = 0;
+        uint32_t environment_update_interval = 0;
+        uint32_t power_update_interval = 0;
+    } telemetry;
 } moduleConfig;
 inline struct {
     struct {

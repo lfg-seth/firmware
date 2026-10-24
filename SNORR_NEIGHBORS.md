@@ -1,6 +1,6 @@
 # SNORR passive neighbor signal reports
 
-The `snorr/rak-survey` fork adds a companion collector on RAK4631 and dedicated Heltec V3 gateway builds. It retains the targeted AHT sensor fix. Standard GPS, standard NeighborInfo (port 71), its schema and its existing interval clamps remain unchanged.
+The `snorr/develop` fork adds a companion collector on RAK4631 and dedicated Heltec V3 gateway builds. It retains the targeted AHT sensor fix. Standard GPS, standard NeighborInfo (port 71), its schema and its existing interval clamps remain unchanged.
 
 ## Activation and limits
 
@@ -16,7 +16,13 @@ The `snorr/rak-survey` fork adds a companion collector on RAK4631 and dedicated 
 
 The first opportunity is 60–75 seconds after boot. Subsequent opportunities run on a 15-second scheduler tick. Changed observations coalesce; empty reports are suppressed. At most eight rows (152 payload bytes) are sent per opportunity. Larger tables rotate across packets; they continue rotating until entries expire even without new traffic. Rows are read at each report's creation, not a frozen multi-packet snapshot. An omitted row never deletes a link or proves it is unavailable.
 
-Local reports use a minimum 60-second interval plus 0–15 seconds jitter. Ordinary `rak4631` builds use **180 seconds** for radio reports; the generic default (including `heltec-v3-gateway`) remains 300 seconds. Jitter and the 15-second scheduler tick can add up to 30 seconds before airtime admission. Override `USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS` at build time within 180–3600 seconds. The ordinary NeighborInfo update interval does not control these companion reports and retains its four-hour minimum/six-hour default. Switching between local and radio mode preserves the applicable minimum cooldown.
+Radio reports read the saved `telemetry.device_update_interval` on each eligible scheduler pass. Zero/unset uses `USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS` as the fallback: **180 seconds** on ordinary `rak4631`, 300 seconds on the generic/gateway build. Nonzero values below 180 seconds are clamped to 180. Values above **2,147,468 seconds** (about 24.85 days) saturate at that baseline before conversion to milliseconds; the cooldown including maximum jitter stays below half the uint32 timer range. There is no one-hour cap. This couples device and radio SNNS baselines; environment and power retain their separate saved intervals. The ordinary NeighborInfo update interval does not control SNNS and retains its four-hour minimum/six-hour default.
+
+Local reports retain their **60-second** baseline independently of device telemetry. Each report samples 0–14,999 milliseconds of jitter once; the 15-second scheduler tick can add further delay. A shorter setting or mode change preserves the previous report's baseline cooldown plus its sampled jitter once; a longer setting extends the cooldown with that same jitter. The next report starts a new cooldown using the current baseline. Missed opportunities never cause burst catch-up. An enqueue at timer value zero still starts a cooldown, including across rollover.
+
+Admin telemetry writes replace the in-memory telemetry configuration. Outside an edit transaction they save and schedule the normal reboot; commit saves/reboots an open transaction. Until reboot, the module follows the cooldown rules above. After reboot it uses the saved setting, a new boot identifier/sequence and the normal 60–75-second startup opportunity; the previous boot's cooldown is not persisted. The first report still requires fresh observations. Admin authorization, persistence and over-radio readback require their separate selected-board acceptance.
+
+The shared radio path uses this saved setting on both enabled targets, but gateway local mode ignores it and does not alter `lora.tx_enabled=false`. No gateway profile or transmit permission is changed by this implementation.
 
 Radio reports require a nondefault primary channel, LoRa transmit enabled, a role other than CLIENT_MUTE, and both existing channel/airtime admission checks. Failed admission defers 30 seconds; a later check can defer again. Reports have BACKGROUND priority, no requested ACK and no requested response. No active probes or additional GPS transmissions are generated. Local mode uses `NODENUM_BROADCAST_NO_LORA`; the existing router performs MQTT handling before the radio discards that destination. MQTT still requires its normal connection/uplink settings.
 
@@ -52,25 +58,11 @@ This change supplies firmware reports only. The current portal adapter archives 
 From this firmware directory on a host with GCC:
 
 ```sh
-g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -DSNORR_STANDALONE_TEST -Isrc test/test_snorr_neighbor_signals/test_main.cpp \
-  -o /tmp/snorr-neighbor-tests
-/tmp/snorr-neighbor-tests
+python3 test/test_snorr_neighbor_signals/run.py
 ```
 
-Repeat with `-DUSERPREFS_SNORR_NEIGHBOR_CAPACITY=10` to check nondefault capacity. The test also has a normal Unity/native entry point. These checks cover filtering, actual byte encoding (including zero/negative SNR), update counts, bounded packet rotation, least-recently-heard eviction and expiry across timer rollover. They do not prove RF delivery or runtime.
+The runner uses GCC with AddressSanitizer and UndefinedBehaviorSanitizer. It checks both 180/300-second fallback builds and collector capacities 32/10. The collector also has a normal Unity/native entry point. Its checks cover filtering, actual byte encoding (including zero/negative SNR), update counts, bounded packet rotation, least-recently-heard eviction and expiry across timer rollover. They do not prove RF delivery or runtime.
 
-The module harness compiles the actual module implementation with test doubles for packet transport, airtime, time and settings:
-
-```sh
-g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -DSNORR_STANDALONE_MODULE_TEST -Itest/test_snorr_neighbor_signals/stubs -Isrc \
-  test/test_snorr_neighbor_signals/test_module.cpp -o /tmp/snorr-neighbor-module-tests
-/tmp/snorr-neighbor-module-tests
-```
-
-It checks primary-channel filtering, module enablement, public-channel/transmit/role/both airtime gates, local-only mode, report priority/ACK behavior, minimum cooldowns after a mode change and across timer rollover, and silent expiry. It does not emulate the router, radio or MQTT implementation.
-
-Repeat the module harness with `-DUSERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS=180` for the RAK profile. Both variants also exercise nonzero jitter and airtime deferral after the cooldown. Device, environment and power telemetry use their own saved settings; a configured 180-second interval remains subject to normal congestion scaling and airtime admission. NodeInfo is a separate identity announcement with its existing suppression policy.
+The module harness compiles the actual module implementation and `src/mesh/Throttle.cpp` with test doubles for packet transport, airtime, time, settings and the scheduler boundary. It checks unset/below-minimum/180/300/900-second settings, longer-than-hour/day settings, saturation boundaries and uint32 extremes, shortening/lengthening, retained jitter, reboot reconstruction, timer rollover (including a report at zero), both local/radio transitions, no catch-up, empty reports, primary-channel filtering, module enablement, public-channel/transmit/role/both airtime gates and report priority/ACK behavior. It records constructor startup delay and checks returned scheduler delays; it does not execute the real scheduler, admin transport, flash persistence, router, radio or MQTT implementation. A configured interval remains subject to congestion and airtime admission. NodeInfo retains its existing suppression policy.
 
 Before rollout: preserve current profiles/keys, identity-check a bench RAK, flash the built image with owner authorization, explicitly configure/read back NeighborInfo settings, then verify private-port receipt through both stock gateways, decoding and reporting/expiry under congestion/outages. Compare passive GPS freshness, airtime and runtime against the stock baseline. Sensor calibration, placement, solar sufficiency and field coverage remain separate measurements.

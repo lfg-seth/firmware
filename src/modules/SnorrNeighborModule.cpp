@@ -9,8 +9,11 @@
 #ifndef USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS
 #define USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS 300
 #endif
-static_assert(USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS >= 180 && USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS <= 3600,
-              "SNORR radio reports require a 3-60 minute interval");
+// Keep the cooldown below half the millis() range, including maximum jitter.
+static constexpr uint32_t MAX_INTERVAL_SECS = (INT32_MAX - 15000) / 1000;
+static_assert(USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS >= 180 &&
+                  USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS <= MAX_INTERVAL_SECS,
+              "SNORR radio fallback must fit the cooldown timer and be at least 180 seconds");
 
 SnorrNeighborModule::SnorrNeighborModule()
     : SinglePortModule("snorr-neighbors", meshtastic_PortNum_PRIVATE_APP), concurrency::OSThread("SnorrNeighbors"),
@@ -44,8 +47,12 @@ int32_t SnorrNeighborModule::runOnce()
                      config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
                      !airTime->isTxAllowedChannelUtil(true) || !airTime->isTxAllowedAirUtil()))
         return 30 * 1000;
-    const uint32_t minimumMs = overLora ? USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS * 1000 : 60 * 1000;
-    if (lastReportMs && Throttle::isWithinTimespanMs(lastReportMs, std::max(minimumMs, reportIntervalMs)))
+    uint32_t radioSecs = moduleConfig.telemetry.device_update_interval;
+    if (!radioSecs)
+        radioSecs = USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS;
+    const uint32_t minimumMs = overLora ? std::clamp(radioSecs, uint32_t(180), MAX_INTERVAL_SECS) * 1000 : 60 * 1000;
+    // Shortening or changing modes must not cancel an outstanding cooldown.
+    if (hasReported && Throttle::isWithinTimespanMs(lastReportMs, std::max(minimumMs, reportIntervalMs) + reportJitterMs))
         return 15 * 1000;
 
     auto packet = allocDataPacket();
@@ -62,7 +69,9 @@ int32_t SnorrNeighborModule::runOnce()
     packet->decoded.want_response = false;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     lastReportMs = millis();
-    reportIntervalMs = (overLora ? USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS : 60) * 1000 + random(0, 15 * 1000);
+    hasReported = true;
+    reportIntervalMs = minimumMs;
+    reportJitterMs = random(0, 15 * 1000);
     return 15 * 1000;
 }
 #endif

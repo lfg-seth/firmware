@@ -63,16 +63,8 @@ jobs:
           python3 test/test_ina219_sensor/run.py
           python3 bin/test_verify_snorr_release.py
           python3 bin/test_package_snorr_release.py
-      - name: Verify default and private RAK neighbor cadence
-        run: |
-          for interval in 300 180; do
-            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -DSNORR_STANDALONE_MODULE_TEST -DUSERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS="$interval" -Itest/test_snorr_neighbor_signals/stubs -Isrc test/test_snorr_neighbor_signals/test_module.cpp -o /tmp/snorr-neighbor-module
-            /tmp/snorr-neighbor-module
-          done
-          for capacity in 32 10; do
-            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -DSNORR_STANDALONE_TEST -DUSERPREFS_SNORR_NEIGHBOR_CAPACITY="$capacity" -Isrc test/test_snorr_neighbor_signals/test_main.cpp -o /tmp/snorr-neighbor-collector
-            /tmp/snorr-neighbor-collector
-          done
+      - name: Verify saved neighbor cadence and gateway compatibility
+        run: python3 test/test_snorr_neighbor_signals/run.py
       - id: package
         name: Package exact UF2, OTA ZIP, manifest and checksums
         run: python3 bin/package_snorr_release.py --package release-bundle
