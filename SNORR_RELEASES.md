@@ -14,4 +14,39 @@ python3 bin/verify_snorr_release.py --tag snorr-rak4631-2.7.26.0b65f2e-pre.1 --a
 python3 bin/verify_snorr_release.py --tag snorr-rak4631-2.7.26.0b65f2e-pre.1
 ```
 
-The inherited release workflow gates Docker, PPA, OBS, COPR, upstream website publishing and version-bump PRs to `meshtastic/firmware`. On `lfg-seth/firmware`, SNORR RAK tags run only a read-only download/manifest/SHA256 verification job. It does not rebuild firmware, upload binaries, inherit upstream secrets or write to other repositories. Release creation/upload remains an explicit publisher action.
+## Two-stage CI publication
+
+The fork-only `snorr_rak_release.yml` workflow runs on `snorr/rak-survey` pushes
+that change firmware/build inputs. First, it builds ordinary `rak4631`, runs the
+sensor, neighbor and release checks, and uploads four exact files: UF2, Nordic
+`-ota.zip`, `build-manifest.json` and `SHA256SUMS`. It does not publish a release
+at this stage. The ordinary RAK build selects 180-second private-channel passive
+neighbor reporting; device telemetry still needs its separately verified profile.
+
+The build log prints the complete UTF-8/LF manifest between
+`BEGIN_SNORR_BUILD_MANIFEST` and `END_SNORR_BUILD_MANIFEST`, followed by its byte
+count and SHA256. The manifest records the binary source commit, version,
+180-second SNNS setting and exact CI run/attempt/artifact pointer. It marks
+hardware verification false; a successful build does not establish hardware or
+field acceptance.
+
+After reviewing that successful build, copy its exact manifest bytes to
+`.github/releases/<tag>.json`. Push a separate commit that adds **only this one
+new manifest**. That commit selects publication rather than another build. The
+publisher verifies the prior run's repository, workflow, branch, source SHA,
+attempt and success; downloads that exact artifact; and checks all four files
+against the tracked manifest. The verifier also rejects intervening firmware or
+build changes between the binary source and publication commit.
+
+The publisher atomically creates a new tag at the **manifest commit**, then
+creates a draft with the checked assets and publishes it as a prerelease with
+latest disabled. The manifest's `source` remains the earlier **binary source
+commit**. An existing tag or release fails closed; no tag update, released-asset
+replacement or overwrite is supported. A partial publication requires inspection
+before choosing a new release identity. Public downloads receive an explicit
+post-publication source/manifest/checksum verification in the same workflow.
+
+The inherited release workflow gates Docker, PPA, OBS, COPR, upstream website
+publishing and version-bump PRs to `meshtastic/firmware`. On `lfg-seth/firmware`,
+its SNORR release job only verifies downloads. Neither workflow deploys the
+portal, flashes radios, inherits upstream secrets or writes to other repositories.

@@ -9,8 +9,8 @@
 #ifndef USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS
 #define USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS 300
 #endif
-static_assert(USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS >= 300 && USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS <= 3600,
-              "SNORR radio reports require a 5-60 minute interval");
+static_assert(USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS >= 180 && USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS <= 3600,
+              "SNORR radio reports require a 3-60 minute interval");
 
 SnorrNeighborModule::SnorrNeighborModule()
     : SinglePortModule("snorr-neighbors", meshtastic_PortNum_PRIVATE_APP), concurrency::OSThread("SnorrNeighbors"),
