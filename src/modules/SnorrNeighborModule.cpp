@@ -5,6 +5,12 @@
 #include "NodeDB.h"
 #include <Throttle.h>
 #include <algorithm>
+#include <cstring>
+#if HAS_WIFI
+#include "RTC.h"
+#include "mqtt/MQTT.h"
+#include <WiFi.h>
+#endif
 
 #ifndef USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS
 #define USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS 300
@@ -38,6 +44,9 @@ ProcessMessage SnorrNeighborModule::handleReceived(const meshtastic_MeshPacket &
 
 int32_t SnorrNeighborModule::runOnce()
 {
+#if HAS_WIFI
+    sendGatewayHealth();
+#endif
     signals.expire(millis());
     if (!moduleConfig.neighbor_info.enabled || !signals.hasChanges())
         return 15 * 1000;
@@ -74,4 +83,42 @@ int32_t SnorrNeighborModule::runOnce()
     reportJitterMs = random(0, 15 * 1000);
     return 15 * 1000;
 }
+
+#if HAS_WIFI
+void SnorrNeighborModule::sendGatewayHealth()
+{
+    if (!moduleConfig.neighbor_info.enabled || !moduleConfig.neighbor_info.transmit_over_lora ||
+        !moduleConfig.mqtt.enabled || !config.network.wifi_enabled || channels.isDefaultChannel(channels.getPrimaryIndex()) ||
+        !config.lora.tx_enabled || config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
+        !airTime->isTxAllowedChannelUtil(true) || !airTime->isTxAllowedAirUtil())
+        return;
+    uint32_t seconds = moduleConfig.telemetry.device_update_interval;
+    const uint32_t interval = std::clamp(seconds ? seconds : uint32_t(180), uint32_t(180), MAX_INTERVAL_SECS) * 1000;
+    if (hasHealthReport && Throttle::isWithinTimespanMs(lastHealthMs, std::max(interval, healthIntervalMs) + healthJitterMs))
+        return;
+    auto packet = allocDataPacket();
+    auto *data = packet->decoded.payload.bytes;
+    memcpy(data, "SNGH", 4);
+    data[4] = 1;
+    const bool wifi = WiFi.status() == WL_CONNECTED;
+    data[5] = (wifi ? 1 : 0) | (wifi && mqtt && mqtt->isConnectedDirectly() ? 2 : 0);
+    data[6] = data[7] = 0;
+    const uint32_t values[] = {nodeDB->getNodeNum(), bootId, ++healthSequence, millis() / 1000,
+                               getValidTime(RTCQualityFromNet), interval / 1000};
+    for (size_t i = 0; i < 6; ++i)
+        for (size_t j = 0; j < 4; ++j)
+            data[8 + i * 4 + j] = values[i] >> (j * 8);
+    packet->decoded.payload.size = 32;
+    packet->channel = channels.getPrimaryIndex();
+    packet->to = NODENUM_BROADCAST;
+    packet->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    packet->want_ack = false;
+    packet->decoded.want_response = false;
+    service->sendToMesh(packet, RX_SRC_LOCAL, true);
+    lastHealthMs = millis();
+    hasHealthReport = true;
+    healthIntervalMs = interval;
+    healthJitterMs = random(0, 15 * 1000);
+}
+#endif
 #endif

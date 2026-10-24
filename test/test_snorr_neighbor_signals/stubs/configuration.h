@@ -48,6 +48,7 @@ inline struct {
         uint32_t environment_update_interval = 0;
         uint32_t power_update_interval = 0;
     } telemetry;
+    struct { bool enabled = false; } mqtt;
 } moduleConfig;
 inline struct {
     struct {
@@ -56,6 +57,7 @@ inline struct {
     struct {
         int role = 0;
     } device;
+    struct { bool wifi_enabled = false; } network;
 } config;
 inline struct {
     bool isDefault = false;

@@ -52,3 +52,5 @@ with tempfile.TemporaryDirectory() as directory:
                 f"-DUSERPREFS_SNORR_NEIGHBOR_CAPACITY={capacity}",
             ],
         )
+    run("test/test_snorr_neighbor_signals/test_module.cpp",
+        ["-DSNORR_STANDALONE_MODULE_TEST", "-DHAS_WIFI=1"], ["src/mesh/Throttle.cpp"])

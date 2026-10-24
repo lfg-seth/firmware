@@ -2,6 +2,7 @@
 #include "modules/SnorrNeighborModule.cpp"
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 
 class TestModule : public SnorrNeighborModule
 {
@@ -260,6 +261,30 @@ static void testFiltersAndGates()
 
 int main()
 {
+#if HAS_WIFI
+    reset();
+    TestModule gateway;
+    moduleConfig.mqtt.enabled = true;
+    config.network.wifi_enabled = true;
+    moduleConfig.telemetry.device_update_interval = 180;
+    expectSend(gateway, 1);
+    assert(testService.last.decoded.payload.size == 32);
+    assert(memcmp(testService.last.decoded.payload.bytes, "SNGH", 4) == 0);
+    assert(testService.last.decoded.payload.bytes[5] == 0);
+    assert(read32(testService.last.decoded.payload.bytes + 28) == 180);
+    WiFi.connection = WL_CONNECTED;
+    testMqtt.connected = false;
+    testNow += 180000;
+    expectSend(gateway, 2);
+    assert(testService.last.decoded.payload.bytes[5] == 1);
+    testMqtt.connected = true;
+    testNow += 180000;
+    expectSend(gateway, 3);
+    assert(testService.last.decoded.payload.bytes[5] == 3);
+    config.lora.tx_enabled = false;
+    testNow += 180000;
+    expectSend(gateway, 3);
+#endif
     testSavedIntervals();
     testConfigurationChanges();
     testModes();
