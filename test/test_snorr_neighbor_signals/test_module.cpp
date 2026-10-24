@@ -13,6 +13,7 @@ class TestModule : public SnorrNeighborModule
 
 int main()
 {
+    constexpr uint32_t radioIntervalMs = USERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS * 1000;
     TestModule module;
     meshtastic_MeshPacket incoming;
     assert(module.wantPacket(&incoming));
@@ -54,7 +55,7 @@ int main()
     assert(!testService.last.want_ack && !testService.last.decoded.want_response);
     assert(testService.last.decoded.payload.size == 40);
 
-    testNow += 299999;
+    testNow += radioIntervalMs - 1;
     module.handleReceived(incoming);
     module.runOnce();
     assert(testService.sent == 1);
@@ -84,7 +85,7 @@ int main()
     local.handleReceived(incoming);
     local.runOnce();
     assert(testService.sent == 4);
-    testNow += 240000;
+    testNow += radioIntervalMs - 60000;
     local.runOnce();
     assert(testService.sent == 5 && testService.last.to == NODENUM_BROADCAST);
 
@@ -93,7 +94,7 @@ int main()
     rollover.handleReceived(incoming);
     rollover.runOnce();
     assert(testService.sent == 6);
-    testNow += 299999;
+    testNow += radioIntervalMs - 1;
     rollover.handleReceived(incoming);
     rollover.runOnce();
     assert(testService.sent == 6);
@@ -103,6 +104,27 @@ int main()
     testNow += snorr::NeighborSignals::EXPIRY_MS;
     rollover.runOnce();
     assert(testService.sent == 7);
-    std::puts("PASS: actual module filters, transmit gates, priority, local mode and cooldowns");
+
+    TestModule jittered;
+    testRandomOffset = 14999;
+    jittered.handleReceived(incoming);
+    jittered.runOnce();
+    assert(testService.sent == 8);
+    testNow += radioIntervalMs;
+    jittered.handleReceived(incoming);
+    jittered.runOnce();
+    assert(testService.sent == 8);
+    testNow += 14998;
+    jittered.runOnce();
+    assert(testService.sent == 8);
+    ++testNow;
+    testAirTime.airAllowed = false;
+    jittered.runOnce();
+    assert(testService.sent == 8);
+    testAirTime.airAllowed = true;
+    jittered.runOnce();
+    assert(testService.sent == 9);
+    std::puts("PASS: actual module filters, transmit gates, priority, local mode "
+              "and cooldowns");
 }
 #endif

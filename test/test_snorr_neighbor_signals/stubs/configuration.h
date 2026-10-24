@@ -8,9 +8,10 @@ inline uint32_t millis()
 {
     return testNow;
 }
-inline long random(long minimum, long)
+inline long testRandomOffset = 0;
+inline long random(long minimum, long maximum)
 {
-    return minimum;
+    return minimum + (testRandomOffset < maximum - minimum ? testRandomOffset : maximum - minimum - 1);
 }
 constexpr int meshtastic_PortNum_PRIVATE_APP = 256;
 constexpr int meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE = 1;

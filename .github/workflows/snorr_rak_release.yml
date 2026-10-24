@@ -1,0 +1,129 @@
+name: SNORR RAK cached release
+
+on:
+  push:
+    branches: [snorr/rak-survey]
+    paths:
+      - src/**
+      - variants/**
+      - boards/**
+      - protobufs/**
+      - platformio.ini
+      - userPrefs.jsonc
+      - version.properties
+      - bin/**
+      - .github/workflows/snorr_rak_release.yml
+      - .github/releases/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snorr-rak-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.repository == 'lfg-seth/firmware'
+    runs-on: ubuntu-24.04
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      tag: ${{ steps.select.outputs.tag }}
+      run_id: ${{ steps.select.outputs.run_id }}
+      artifact: ${{ steps.select.outputs.artifact }}
+      source: ${{ steps.select.outputs.source }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: select
+        run: python3 bin/package_snorr_release.py --select
+
+  build:
+    needs: select
+    if: needs.select.outputs.mode == 'build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: python3 -m pip install platformio==6.1.18
+      - name: Build ordinary RAK4631
+        run: pio run -e rak4631 -t mtjson
+      - name: Verify sensor and release contracts
+        run: |
+          python3 test/test_ina219_sensor/run.py
+          python3 bin/test_verify_snorr_release.py
+          python3 bin/test_package_snorr_release.py
+      - name: Verify default and private RAK neighbor cadence
+        run: |
+          for interval in 300 180; do
+            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -DSNORR_STANDALONE_MODULE_TEST -DUSERPREFS_SNORR_NEIGHBOR_LORA_INTERVAL_SECS="$interval" -Itest/test_snorr_neighbor_signals/stubs -Isrc test/test_snorr_neighbor_signals/test_module.cpp -o /tmp/snorr-neighbor-module
+            /tmp/snorr-neighbor-module
+          done
+          for capacity in 32 10; do
+            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -DSNORR_STANDALONE_TEST -DUSERPREFS_SNORR_NEIGHBOR_CAPACITY="$capacity" -Isrc test/test_snorr_neighbor_signals/test_main.cpp -o /tmp/snorr-neighbor-collector
+            /tmp/snorr-neighbor-collector
+          done
+      - id: package
+        name: Package exact UF2, OTA ZIP, manifest and checksums
+        run: python3 bin/package_snorr_release.py --package release-bundle
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: release-bundle/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: select
+    if: needs.select.outputs.mode == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.select.outputs.tag }}
+      BUILD_RUN_ID: ${{ needs.select.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact successful build origin
+        run: |
+          gh api "repos/lfg-seth/firmware/actions/runs/$BUILD_RUN_ID" > prior-run.json
+          python3 bin/package_snorr_release.py --validate-run prior-run.json --tag "$RELEASE_TAG"
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.select.outputs.artifact }}
+          path: release-bundle
+          run-id: ${{ needs.select.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify tracked manifest and all four artifact files
+        run: python3 bin/verify_snorr_release.py --tag "$RELEASE_TAG" --asset-dir release-bundle
+      - name: Publish a new cached prerelease
+        env:
+          MANIFEST_COMMIT: ${{ github.sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo lfg-seth/firmware >/dev/null 2>&1; then
+            echo "Release already exists; refusing replacement." >&2
+            exit 1
+          fi
+          jq -n --arg ref "refs/tags/$RELEASE_TAG" --arg sha "$MANIFEST_COMMIT" '{ref: $ref, sha: $sha}' > release-ref.json
+          gh api --method POST repos/lfg-seth/firmware/git/refs --input release-ref.json > created-ref.json
+          jq -e --arg ref "refs/tags/$RELEASE_TAG" --arg sha "$MANIFEST_COMMIT" '.ref == $ref and .object.sha == $sha and .object.type == "commit"' created-ref.json
+          printf '%s\n' 'Ordinary RAK4631 pilot image with 180-second private-channel passive-neighbor cadence and INA219 fixes. Device telemetry requires the separately verified profile. Hardware validation and field acceptance remain separate.' > release-notes.txt
+          gh release create "$RELEASE_TAG" release-bundle/* --repo lfg-seth/firmware --verify-tag --target "$MANIFEST_COMMIT" --title "$RELEASE_TAG" --notes-file release-notes.txt --draft --prerelease --latest=false
+          gh release edit "$RELEASE_TAG" --repo lfg-seth/firmware --draft=false --prerelease --latest=false
+      - name: Verify public downloads against the tracked source and bytes
+        run: python3 bin/verify_snorr_release.py --tag "$RELEASE_TAG"
