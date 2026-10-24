@@ -165,7 +165,7 @@ def validate_run(path, tag):
     if (
         run["repository"]["full_name"] != REPOSITORY
         or run["head_repository"]["full_name"] != REPOSITORY
-        or run["head_branch"] != "snorr/rak-survey"
+        or run["head_branch"] != "snorr/develop"
         or run["head_sha"] != manifest["source"]
         or run["event"] != "push"
         or run["conclusion"] != "success"

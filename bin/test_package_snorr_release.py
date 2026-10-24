@@ -72,7 +72,7 @@ class PublicationTest(unittest.TestCase):
         expected_run = {
             "repository": {"full_name": "lfg-seth/firmware"},
             "head_repository": {"full_name": "lfg-seth/firmware"},
-            "head_branch": "snorr/rak-survey",
+            "head_branch": "snorr/develop",
             "head_sha": SOURCE,
             "event": "push",
             "conclusion": "success",
@@ -92,6 +92,7 @@ class PublicationTest(unittest.TestCase):
                 for field, value in [
                     ("head_sha", "b" * 40),
                     ("head_branch", "main"),
+                    ("head_branch", "snorr/rak-survey"),
                     ("conclusion", "failure"),
                     ("id", 124),
                     ("run_attempt", 2),

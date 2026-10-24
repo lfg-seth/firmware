@@ -3,7 +3,7 @@ name: SNORR RAK cached release
 on:
   # Push evaluates the workflow at its source ref; no default-branch rollout.
   push:
-    branches: [snorr/rak-survey]
+    branches: [snorr/develop]
     paths:
       - src/**
       - variants/**

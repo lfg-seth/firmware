@@ -16,7 +16,7 @@ python3 bin/verify_snorr_release.py --tag snorr-rak4631-2.7.26.0b65f2e-pre.1
 
 ## Two-stage CI publication
 
-The fork-only `snorr_rak_release.yml` workflow runs on `snorr/rak-survey` pushes
+The fork-only `snorr_rak_release.yml` workflow runs on `snorr/develop` pushes
 that change firmware/build inputs. First, it builds ordinary `rak4631`, runs the
 sensor, neighbor and release checks, and uploads four exact files: UF2, Nordic
 `-ota.zip`, `build-manifest.json` and `SHA256SUMS`. It does not publish a release
