@@ -109,7 +109,7 @@ int32_t SerialConsole::runOnce()
 
     int32_t delay = runOncePart();
 #ifdef SNORR_SD_GATEWAY
-    if (survey && millis() - surveyStart >= 1800000) survey = false;
+    if (survey && (!config.security.serial_enabled || millis() - surveyStart >= 1800000)) survey = false;
     if (survey) {
         if (millis() - surveyLast >= 1000) {
             surveyLast = millis();

@@ -20,8 +20,9 @@ WifiSample sampleWifi()
     static uint32_t association = 0;
     wifi_ap_record_t ap{};
     if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
-        attached = false;
-        return {uint8_t(WiFi.status() == WL_CONNECTED ? 1 : 0), 0, 0, 0};
+        const bool connected = WiFi.status() == WL_CONNECTED;
+        if (!connected) attached = false;
+        return {uint8_t(connected ? 1 : 0), 0, 0, 0};
     }
     if (!attached || memcmp(previous, ap.bssid, sizeof(previous))) {
         memcpy(previous, ap.bssid, sizeof(previous));
@@ -29,7 +30,7 @@ WifiSample sampleWifi()
         ++association;
         if (!association) ++association;
     }
-    if (!ap.primary || ap.primary > 14 || ap.rssi <= -127 || ap.rssi > 0)
+    if (!ap.primary || ap.primary > 14)
         return {1, 0, 0, 0};
     return {2, ap.rssi, ap.primary, association};
 }
