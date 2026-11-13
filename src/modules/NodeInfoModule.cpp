@@ -87,6 +87,9 @@ void NodeInfoModule::alterReceivedProtobuf(meshtastic_MeshPacket &mp, meshtastic
 
 void NodeInfoModule::sendOurNodeInfo(NodeNum dest, bool wantReplies, uint8_t channel, bool _shorterTimeout)
 {
+#ifdef SNORR_SD_GATEWAY
+    if (wantReplies) return; // Passive observer, including first-heard peers and channel changes.
+#endif
     // cancel any not yet sent (now stale) position packets
     if (prevPacketId) // if we wrap around to zero, we'll simply fail to cancel in that rare case (no big deal)
         service->cancelSending(prevPacketId);

@@ -1,4 +1,7 @@
 #include "FloodingRouter.h"
+#ifdef SNORR_SD_GATEWAY
+#include "SnorrRecorder.h"
+#endif
 #include "MeshTypes.h"
 #include "NodeDB.h"
 #include "configuration.h"
@@ -41,6 +44,9 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     }
 
     if (seenRecently) {
+#ifdef SNORR_SD_GATEWAY
+        recorder::packet(recorder::Duplicate, *p);
+#endif
         printPacket("Ignore dupe incoming msg", p);
         rxDupe++;
 

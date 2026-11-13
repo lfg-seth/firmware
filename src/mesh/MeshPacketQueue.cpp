@@ -1,6 +1,9 @@
 #include "MeshPacketQueue.h"
 #include "NodeDB.h"
 #include "configuration.h"
+#ifdef SNORR_SD_GATEWAY
+#include "SnorrRecorder.h"
+#endif
 #include <assert.h>
 
 #include <algorithm>
@@ -161,6 +164,9 @@ bool MeshPacketQueue::replaceLowerPriorityPacket(meshtastic_MeshPacket *p)
         LOG_WARN("Dropping packet 0x%08x to make room in the TX queue for higher-priority packet 0x%08x", backPacket->id, p->id);
         // Remove the back packet
         queue.pop_back();
+#ifdef SNORR_SD_GATEWAY
+        recorder::event(recorder::TxDiscard, backPacket->from, backPacket->id, 0, nullptr, 0, p->id);
+#endif
         packetPool.release(backPacket);
         // Insert the new packet in the correct order
         enqueue(p);
@@ -177,6 +183,9 @@ bool MeshPacketQueue::replaceLowerPriorityPacket(meshtastic_MeshPacket *p)
             LOG_WARN("Dropping non-late packet 0x%08x to make room in the TX queue for higher-priority packet 0x%08x",
                      refPacket->id, p->id);
             queue.erase(it);
+#ifdef SNORR_SD_GATEWAY
+            recorder::event(recorder::TxDiscard, refPacket->from, refPacket->id, 0, nullptr, 0, p->id);
+#endif
             packetPool.release(refPacket);
             // Insert the new packet in the correct order
             enqueue(p);
@@ -200,6 +209,9 @@ bool MeshPacketQueue::replaceLowerPriorityPacket(meshtastic_MeshPacket *p)
                          backPacket->id, dt, p->id);
             }
             queue.pop_back();
+#ifdef SNORR_SD_GATEWAY
+            recorder::event(recorder::TxDiscard, backPacket->from, backPacket->id, 0, nullptr, 0, p->id);
+#endif
             packetPool.release(backPacket);
             // Insert the new packet in the correct order
             enqueue(p);

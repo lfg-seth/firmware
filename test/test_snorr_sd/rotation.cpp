@@ -23,6 +23,15 @@ int main()
     fixture::files["0:/notes.txt"]={1,2};
     assert(mount());
     std::string next=path;
+    // A spliced but CRC-valid foreign boot must never be sealed or deleted.
+    auto foreignBoot=fixture::files.at(oldest);
+    putLittle(foreignBoot.data()+headerSize+44, boot+100, 4);
+    putLittle(foreignBoot.data()+headerSize+frameHeader, snifferCrc(foreignBoot.data()+headerSize,frameHeader),4);
+    auto original=fixture::files.at(oldest);
+    fixture::files[oldest]=foreignBoot;
+    assert(!closedSegment(oldest.c_str(),1,true));
+    assert(fixture::files.at(oldest)==foreignBoot);
+    fixture::files[oldest]=original;
     assert(oldest!=next && fixture::files.count(oldest));
     assert(closeSegment());
     // An unclosed, corrupted owned segment and a foreign name must both survive.

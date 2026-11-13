@@ -113,7 +113,8 @@ bool closedSegment(const char *name, uint32_t n, bool seal = false)
     if (f_open(&in, name, seal ? FA_READ | FA_WRITE : FA_READ) != FR_OK)
         return false;
     uint8_t buf[frameHeader + maxPayload + 4];
-    bool valid = readExact(in, buf, headerSize) && ownedHeader(buf, n);
+    bool valid = f_size(&in) <= segmentLimit && readExact(in, buf, headerSize) && ownedHeader(buf, n);
+    uint32_t ownerBoot = valid ? word(buf + 12) : 0;
     uint32_t count = 0;
     while (valid && !f_eof(&in)) {
         if (!readExact(in, buf, 4)) { valid = false; break; }
@@ -125,11 +126,11 @@ bool closedSegment(const char *name, uint32_t n, bool seal = false)
         }
         if (memcmp(buf, "EVT1", 4) || !readExact(in, buf + 4, frameHeader - 4)) { valid = false; break; }
         unsigned len = unsigned(buf[4]) | unsigned(buf[5]) << 8;
-        valid = valid && len <= maxPayload && readExact(in, buf + frameHeader, len + 4) &&
+        valid = word(buf + 44) == ownerBoot && len <= maxPayload && readExact(in, buf + frameHeader, len + 4) &&
                 word(buf + frameHeader + len) == snifferCrc(buf, frameHeader + len);
         ++count;
     }
-    if (seal && valid && count && f_eof(&in)) {
+    if (seal && valid && count && f_eof(&in) && f_size(&in) + 12 <= segmentLimit) {
         uint8_t end[12] = {'E','N','D','1'};
         putLittle(end + 4, count, 4);
         putLittle(end + 8, snifferCrc(end, 8), 4);
