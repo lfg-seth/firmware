@@ -101,6 +101,7 @@ void SnorrNeighborModule::sendSdHealth()
     static Reservation last{};
     static bool loaded = false;
     static uint64_t lastSeconds = 0;
+    static uint32_t lastInterval = 0;
     static bool sentThisBoot = false;
     static int priorLink = -1;
     const bool wifi = WiFi.status() == WL_CONNECTED;
@@ -111,6 +112,8 @@ void SnorrNeighborModule::sendSdHealth()
     }
     const uint64_t now = esp_timer_get_time() / 1000000;
     const uint32_t utc = getValidTime(RTCQualityFromNet);
+    const uint32_t seconds = moduleConfig.telemetry.device_update_interval;
+    const uint32_t interval = std::clamp(seconds ? seconds : uint32_t(180), uint32_t(180), MAX_INTERVAL_SECS);
     Preferences prefs;
     if (!loaded) {
         if (!prefs.begin("snorr-sd", false)) return;
@@ -118,7 +121,7 @@ void SnorrNeighborModule::sendSdHealth()
         prefs.end();
         loaded = true;
     }
-    if (!snorr::sdDue(last.sequence, last.utc, utc, now - lastSeconds, sentThisBoot) ||
+    if (!snorr::sdDue(last.sequence, last.utc, utc, now - lastSeconds, sentThisBoot, interval, lastInterval) ||
         !moduleConfig.mqtt.enabled || !moduleConfig.mqtt.encryption_enabled || !config.network.wifi_enabled ||
         channels.isDefaultChannel(channels.getPrimaryIndex()) || !config.lora.tx_enabled ||
         !airTime->isTxAllowedChannelUtil(true) || !airTime->isTxAllowedAirUtil())
@@ -134,10 +137,11 @@ void SnorrNeighborModule::sendSdHealth()
     prefs.end();
     last = next;
     lastSeconds = now;
+    lastInterval = interval;
     sentThisBoot = true;
     auto s = recorder::storage();
     snorr::encodeSdHealth(p->decoded.payload.bytes, s.flags, utc ? getRTCQuality() : 0, nodeDB->getNodeNum(),
-                          recorder::bootId(), next.sequence, now, utc, s.used, s.total, s.drops);
+                          recorder::bootId(), next.sequence, now, utc, interval, s.used, s.total, s.drops);
     p->decoded.payload.size = snorr::sdWireSize;
     p->channel = channels.getPrimaryIndex();
     p->to = NODENUM_BROADCAST;

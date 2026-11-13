@@ -19,7 +19,8 @@ mounted-filesystem counts. No card-detect switch is fitted. An unsuccessful
 probe may mean an absent or unreadable card. Byte 6 is the source clock
 (0 unknown, 2 mesh, 3 NTP, 4 GPS). Byte 7 is reserved zero. Six uint32
 values at offsets 8–31 hold the originating node, nonzero boot ID, persistent
-report sequence, uptime seconds, source UTC (zero if unknown) and 86400.
+report sequence, uptime seconds, source UTC (zero if unknown) and the effective
+report interval in seconds.
 At offsets 32 and 40 are uint64 used and total filesystem bytes from one
 FatFs free-cluster query. Unknown counts encode as two zeros. At 48 is a
 uint32 count of discarded event records in this boot. A near-full volume
@@ -27,9 +28,14 @@ can be recording successfully. SNGH remains its independent 32-byte format.
 
 The first eligible report can go on a new installation. The reservation
 is persisted before handoff so rapid reboots cannot repeat it. Subsequent
-sends require a day of uptime in the same boot. After reboot a credible
-elapsed source day also qualifies. Without a comparable clock the gateway
-waits a full day of uptime. A power cut after reservation can lose a report.
+sends follow `moduleConfig.telemetry.device_update_interval`, with the same
+180-second minimum, zero-value fallback and timer ceiling as SNGH. G001's
+saved 300-second setting therefore applies to SD too. The packet carries this
+effective interval; no separate SD cadence setting is needed. Shortening the
+interval preserves the prior outstanding cooldown. After reboot, a credible
+elapsed source interval also qualifies. Without a comparable clock the gateway
+waits one full interval of uptime. The existing `snorr-sd/daily` reservation key
+is retained for upgrade compatibility. A power cut after reservation can lose a report.
 Channel/airtime admission is retried on the collector's scheduler. Queue
 or transport failure after handoff is recorded and does not establish delivery.
 
