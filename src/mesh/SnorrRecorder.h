@@ -8,7 +8,7 @@ namespace recorder
 // IDs are part of the on-card SML1 schema.
 enum Kind : uint8_t {
     Boot = 1, RawRx, Decoded, Duplicate, Local, Admission, TxStart, TxDone,
-    MqttEnvelope, MqttQueued, MqttDiscard, MqttResult, Link, Gap, Clock, Eviction, RouterDiscard, MqttIntent, TxDiscard
+MqttEnvelope, MqttQueued, MqttDiscard, MqttResult, Link, Gap, Clock, Eviction, RouterDiscard, MqttIntent, TxDiscard, WifiSurvey
 };
 struct Storage {
     uint8_t flags; // card detected, mounted, last write OK, counts valid

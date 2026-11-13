@@ -1,4 +1,5 @@
 #include "DeviceTelemetry.h"
+#include "../SnorrWifi.h"
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
 #include "Default.h"
 #include "MeshService.h"
@@ -32,6 +33,10 @@ int32_t DeviceTelemetryModule::runOnce()
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN &&
         moduleConfig.telemetry.device_telemetry_enabled) {
         sendTelemetry();
+#ifdef SNORR_SD_GATEWAY
+        snorr::broadcastWifi(Default::getConfiguredOrDefaultMsScaled(moduleConfig.telemetry.device_update_interval,
+                                 default_telemetry_broadcast_interval_secs, numOnlineNodes) / 1000);
+#endif
         if (transmitHistory)
             transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_DEVICE_TELEMETRY);
     } else if (service->isToPhoneQueueEmpty()) {

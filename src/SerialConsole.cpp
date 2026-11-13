@@ -1,4 +1,5 @@
 #include "SerialConsole.h"
+#include "modules/SnorrWifi.h"
 #include "Default.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
@@ -78,6 +79,24 @@ SerialConsole::SerialConsole() : StreamAPI(&Port), RedirectablePrint(&Port), con
 #endif
 }
 
+#ifdef SNORR_SD_GATEWAY
+void SerialConsole::onUnframedByte(uint8_t c)
+{
+    if (!config.has_lora || !config.security.serial_enabled) return;
+    if (c == 0x94) { survey = false; surveyPos = 0; return; } // native client takes over
+    if (c == '\r' || c == '\n') {
+        if (surveyPos < sizeof(surveyLine)) {
+            surveyLine[surveyPos] = 0;
+            if (!strcmp(surveyLine, "WIFI ON")) {
+                usingProtobufs = canWrite = false;
+                survey = true; surveyStart = millis(); surveyLast = surveyStart - 1000;
+            } else if (!strcmp(surveyLine, "WIFI OFF")) survey = false;
+        }
+        surveyPos = 0;
+    } else if (surveyPos < sizeof(surveyLine)) surveyLine[surveyPos++] = c;
+}
+#endif
+
 int32_t SerialConsole::runOnce()
 {
 #ifdef HELTEC_MESH_SOLAR
@@ -89,6 +108,21 @@ int32_t SerialConsole::runOnce()
 #endif
 
     int32_t delay = runOncePart();
+#ifdef SNORR_SD_GATEWAY
+    if (survey && millis() - surveyStart >= 1800000) survey = false;
+    if (survey) {
+        if (millis() - surveyLast >= 1000) {
+            surveyLast = millis();
+            const auto s = snorr::sampleWifi();
+            snorr::recordSurvey(s);
+            if (s.state == 2)
+                Port.printf("SNWF measured %lu ms %d dBm ch %u association %lu\r\n", (unsigned long)surveyLast, s.rssi, s.channel, (unsigned long)s.association);
+            else
+                Port.printf("SNWF %s %lu ms\r\n", s.state ? "unavailable" : "disconnected", (unsigned long)surveyLast);
+        }
+        return delay < 250 ? delay : 250;
+    }
+#endif
 #if defined(SERIAL_HAS_ON_RECEIVE) || defined(CONFIG_IDF_TARGET_ESP32S2)
     return Port.available() ? delay : INT32_MAX;
 #elif defined(IS_USB_SERIAL)

@@ -84,6 +84,9 @@ class StreamAPI : public PhoneAPI
 
     /// Are we allowed to write packets to our output stream (subclasses can turn this off - i.e. SerialConsole)
     bool canWrite = true;
+#ifdef SNORR_SD_GATEWAY
+    virtual void onUnframedByte(uint8_t c) {}
+#endif
 
     /// Subclasses can use this scratch buffer if they wish
     uint8_t txBuf[MAX_STREAM_BUF_SIZE] = {0};

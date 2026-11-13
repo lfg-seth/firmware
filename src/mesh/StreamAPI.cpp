@@ -133,6 +133,9 @@ int32_t StreamAPI::readStream()
             // console->printf("rxPtr %d ptr=%d c=0x%x\n", rxPtr, ptr, c);
 
             if (ptr == 0) { // looking for START1
+#ifdef SNORR_SD_GATEWAY
+                onUnframedByte(c); // Only the physical console handles survey commands.
+#endif
                 if (c != START1)
                     rxPtr = 0;     // failed to find framing
             } else if (ptr == 1) { // looking for START2

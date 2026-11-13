@@ -12,6 +12,13 @@ class SerialConsole : public StreamAPI, public RedirectablePrint, private concur
      * If true we are talking to a smart host and all messages (including log messages) must be framed as protobufs.
      */
     bool usingProtobufs = false;
+#ifdef SNORR_SD_GATEWAY
+    void onUnframedByte(uint8_t c) override;
+    uint32_t surveyStart = 0, surveyLast = 0;
+    bool survey = false;
+    char surveyLine[12]{};
+    uint8_t surveyPos = 0;
+#endif
 
   public:
     SerialConsole();
