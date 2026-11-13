@@ -66,6 +66,9 @@ class MQTT : private concurrency::OSThread
 
   protected:
     struct QueueEntry {
+#ifdef SNORR_SD_GATEWAY
+        uint32_t from, id;
+#endif
         std::string topic;
         std::basic_string<uint8_t> envBytes; // binary/pb_encode_to_bytes ServiceEnvelope
     };

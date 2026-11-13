@@ -1,4 +1,7 @@
 #include "RadioLibInterface.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#endif
 #include "MeshTypes.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
@@ -505,6 +508,9 @@ void RadioLibInterface::handleTransmitInterrupt()
 {
     // This can be null if we forced the device to enter standby mode.  In that case
     // ignore the transmit interrupt
+#ifdef SNORR_SD_GATEWAY
+    if (sendingPacket) recorder::event(recorder::TxDone, sendingPacket->from, sendingPacket->id);
+#endif
     if (sendingPacket)
         completeSending();
     powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn); // But our transmitter is definitely off now
@@ -566,7 +572,15 @@ void RadioLibInterface::handleReceiveInterrupt()
     memset(&radioBuffer, 0, sizeof(radioBuffer));
     length = std::min(length, (size_t)MAX_LORA_PAYLOAD_LEN);
 #endif
+#ifdef SNORR_SD_GATEWAY
+    memset(&radioBuffer, 0, sizeof(radioBuffer));
+    length = std::min(length, size_t(MAX_LORA_PAYLOAD_LEN));
+#endif
     int state = iface->readData((uint8_t *)&radioBuffer, length);
+#ifdef SNORR_SD_GATEWAY
+    uint32_t observation = recorder::event(recorder::RawRx, radioBuffer.header.from, radioBuffer.header.id, state,
+                                          &radioBuffer, length, rxMsec, lround(iface->getRSSI()), lround(iface->getSNR() * 4));
+#endif
 #ifdef SNORR_SNIFFER
     const uint32_t receivedMs = millis();
     const int rssi = lround(iface->getRSSI());
@@ -623,6 +637,9 @@ void RadioLibInterface::handleReceiveInterrupt()
 
             // Keep the assigned fields in sync with src/mqtt/MQTT.cpp:onReceiveProto
             mp->from = radioBuffer.header.from;
+#ifdef SNORR_SD_GATEWAY
+            mp->snorr_rx_sequence = observation;
+#endif
             mp->to = radioBuffer.header.to;
             mp->id = radioBuffer.header.id;
             mp->channel = radioBuffer.header.channel;
@@ -714,6 +731,9 @@ bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
         size_t numbytes = beginSending(txp);
 
         int res = iface->startTransmit((uint8_t *)&radioBuffer, numbytes);
+#ifdef SNORR_SD_GATEWAY
+        recorder::event(recorder::TxStart, txp->from, txp->id, res, &radioBuffer, numbytes);
+#endif
         if (res != RADIOLIB_ERR_NONE) {
             LOG_ERROR("startTransmit failed, error=%d", res);
             RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_RADIO_SPI_BUG);

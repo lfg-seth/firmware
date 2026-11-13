@@ -1065,6 +1065,10 @@ typedef struct _meshtastic_MeshPacket {
     uint32_t tx_after;
     /* Indicates which transport mechanism this packet arrived over */
     meshtastic_MeshPacket_TransportMechanism transport_mechanism;
+#ifdef SNORR_SD_GATEWAY
+    /* Local observation token, absent from the nanopb wire field list. */
+    uint32_t snorr_rx_sequence;
+#endif
 } meshtastic_MeshPacket;
 
 /* The bluetooth to device link:

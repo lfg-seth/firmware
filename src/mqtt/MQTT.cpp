@@ -1,4 +1,7 @@
 #include "MQTT.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#endif
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
@@ -325,8 +328,7 @@ bool connectPubSub(const PubSubConfig &config, PubSubClient &pubSub, Client &cli
     pubSub.setClient(client);
     pubSub.setServer(config.serverAddr.c_str(), config.serverPort);
 
-    LOG_INFO("Connecting directly to MQTT server %s, port: %d, username: %s, password: %s", config.serverAddr.c_str(),
-             config.serverPort, config.mqttUsername, config.mqttPassword);
+    LOG_INFO("Connecting directly to MQTT server on port %d", config.serverPort);
 
     // Generate node ID from nodenum for client identification
     std::string nodeId = nodeDB->getNodeId();
@@ -383,6 +385,9 @@ void MQTT::onClientProxyReceive(meshtastic_MqttClientProxyMessage msg)
 
 void MQTT::onReceive(char *topic, byte *payload, size_t length)
 {
+#ifdef SNORR_SD_GATEWAY
+    return;
+#endif
     if (length == 0) {
         LOG_WARN("Empty MQTT payload received, topic %s!", topic);
         return;
@@ -733,7 +738,11 @@ void MQTT::publishQueuedMessages()
     LOG_DEBUG("Publish enqueued MQTT message");
     const std::unique_ptr<QueueEntry> entry(mqttQueue.dequeuePtr(0));
     LOG_INFO("publish %s, %u bytes from queue", entry->topic.c_str(), entry->envBytes.size());
-    publish(entry->topic.c_str(), entry->envBytes.data(), entry->envBytes.size(), false);
+    bool published = publish(entry->topic.c_str(), entry->envBytes.data(), entry->envBytes.size(), false);
+#ifdef SNORR_SD_GATEWAY
+    recorder::event(recorder::MqttResult, entry->from, entry->id, published);
+#endif
+    (void)published;
 
 #if !defined(ARCH_NRF52) ||                                                                                                      \
     defined(NRF52_USE_JSON) // JSON is not supported on nRF52, see issue #2804 ### Fixed by using ArduinoJson ###
@@ -765,6 +774,10 @@ void MQTT::publishQueuedMessages()
 
 void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_MeshPacket &mp_decoded, ChannelIndex chIndex)
 {
+#ifdef SNORR_SD_GATEWAY
+    recorder::event(recorder::MqttIntent, mp_encrypted.from, mp_encrypted.id);
+    if (!moduleConfig.mqtt.encryption_enabled) return;
+#endif
     if (mp_encrypted.via_mqtt)
         return; // Don't send messages that came from MQTT back into MQTT
     bool uplinkEnabled = false;
@@ -820,10 +833,17 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
                                             .gateway_id = const_cast<char *>(nodeId.c_str())};
     size_t numBytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_ServiceEnvelope_msg, &env);
     std::string topic = cryptTopic + channelId + "/" + nodeId;
+#ifdef SNORR_SD_GATEWAY
+    recorder::event(recorder::MqttEnvelope, p->from, p->id, 0, bytes, numBytes);
+#endif
 
     if (moduleConfig.mqtt.proxy_to_client_enabled || this->isConnectedDirectly()) {
         LOG_DEBUG("MQTT Publish %s, %u bytes", topic.c_str(), numBytes);
-        publish(topic.c_str(), bytes, numBytes, false);
+        bool published = publish(topic.c_str(), bytes, numBytes, false);
+#ifdef SNORR_SD_GATEWAY
+        recorder::event(recorder::MqttResult, p->from, p->id, published);
+#endif
+        (void)published;
 
 #if !defined(ARCH_NRF52) ||                                                                                                      \
     defined(NRF52_USE_JSON) // JSON is not supported on nRF52, see issue #2804 ### Fixed by using ArduinoJson ###
@@ -845,9 +865,17 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
         if (mqttQueue.numFree() == 0) {
             LOG_WARN("MQTT queue is full, discard oldest");
             entry = mqttQueue.dequeuePtr(0);
+#ifdef SNORR_SD_GATEWAY
+            recorder::event(recorder::MqttDiscard, entry->from, entry->id);
+#endif
         } else {
             entry = new QueueEntry;
         }
+#ifdef SNORR_SD_GATEWAY
+        entry->from = p->from;
+        entry->id = p->id;
+        recorder::event(recorder::MqttQueued, p->from, p->id);
+#endif
         entry->topic = std::move(topic);
         entry->envBytes.assign(bytes, numBytes);
         if (mqttQueue.enqueue(entry, 0) == false) {

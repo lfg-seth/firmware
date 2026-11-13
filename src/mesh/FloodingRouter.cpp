@@ -154,6 +154,9 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
 
 bool FloodingRouter::isRebroadcaster()
 {
+#ifdef SNORR_SD_GATEWAY
+    return false;
+#endif
     return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&
            config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }

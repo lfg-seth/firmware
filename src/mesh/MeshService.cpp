@@ -7,6 +7,9 @@
 #include "../concurrency/Periodic.h"
 #include "BluetoothCommon.h" // needed for updateBatteryLevel, FIXME, eventually when we pull mesh out into a lib we shouldn't be whacking bluetooth from here
 #include "MeshService.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#endif
 #include "MessageStore.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
@@ -247,10 +250,17 @@ ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, 
 void MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool ccToPhone)
 {
     uint32_t mesh_packet_id = p->id;
+#ifdef SNORR_SD_GATEWAY
+    uint32_t origin = p->from;
+    recorder::packet(recorder::Local, *p);
+#endif
     nodeDB->updateFrom(*p); // update our local DB for this packet (because phone might have sent position packets etc...)
 
     // Note: We might return !OK if our fifo was full, at that point the only option we have is to drop it
     ErrorCode res = router->sendLocal(p, src);
+#ifdef SNORR_SD_GATEWAY
+    recorder::event(recorder::Admission, origin, mesh_packet_id, res);
+#endif
 
     /* NOTE(pboldin): Prepare and send QueueStatus message to the phone as a
      * high-priority message. */

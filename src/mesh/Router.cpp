@@ -1,4 +1,7 @@
 #include "Router.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#endif
 #include "Channels.h"
 #include "CryptoEngine.h"
 #include "MeshRadio.h"
@@ -157,6 +160,9 @@ void Router::enqueueReceivedMessage(meshtastic_MeshPacket *p)
         meshtastic_MeshPacket *old_p;
         old_p = fromRadioQueue.dequeuePtr(0); // Dequeue and discard the oldest packet
         if (old_p) {
+#ifdef SNORR_SD_GATEWAY
+            recorder::packet(recorder::RouterDiscard, *old_p);
+#endif
             printPacket("fromRadioQ full, drop oldest!", old_p);
             packetPool.release(old_p);
         }
@@ -740,6 +746,10 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
 
     // Take those raw bytes and convert them back into a well structured protobuf we can understand
     auto decodedState = perhapsDecode(p);
+#ifdef SNORR_SD_GATEWAY
+    if (src == RX_SRC_RADIO && p->snorr_rx_sequence)
+        recorder::packet(recorder::Decoded, *p, -1 - int32_t(decodedState));
+#endif
     if (decodedState == DecodeState::DECODE_FATAL) {
         // Fatal decoding error, we can't do anything with this packet
         LOG_WARN("Fatal decode error, dropping packet");

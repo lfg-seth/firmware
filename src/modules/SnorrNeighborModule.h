@@ -27,6 +27,9 @@ class SnorrNeighborModule : public SinglePortModule, private concurrency::OSThre
     bool hasReported = false;
 #if HAS_WIFI
     void sendGatewayHealth();
+#ifdef SNORR_SD_GATEWAY
+    void sendSdHealth();
+#endif
     uint32_t healthSequence = 0;
     uint32_t lastHealthMs = 0;
     uint32_t healthIntervalMs = 0;

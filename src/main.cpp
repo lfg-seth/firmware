@@ -1,4 +1,8 @@
 #include "configuration.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#include "input/InputBroker.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_GPS
 #include "GPS.h"
 #endif
@@ -479,7 +483,7 @@ void setup()
     Wire1.begin();
 #elif defined(I2C_SDA1) && !defined(ARCH_RP2040)
     Wire1.begin(I2C_SDA1, I2C_SCL1);
-#elif WIRE_INTERFACES_COUNT == 2
+#elif WIRE_INTERFACES_COUNT == 2 && !defined(SNORR_SD_GATEWAY)
     Wire1.begin();
 #endif
 
@@ -722,6 +726,9 @@ void setup()
     // We do this as early as possible because this loads preferences from flash
     // but we need to do this after main cpu init (esp32setup), because we need the random seed set
     nodeDB = new NodeDB;
+#ifdef SNORR_SD_GATEWAY
+    recorder::begin(nodeDB->getNodeNum());
+#endif
 
     // Initialize transmit history to persist broadcast throttle timers across reboots
     TransmitHistory::getInstance()->loadFromDisk();

@@ -1,4 +1,10 @@
 #include "SnorrNeighborModule.h"
+#ifdef SNORR_SD_GATEWAY
+#include "SnorrSdHealth.h"
+#include "mesh/SnorrRecorder.h"
+#include <Preferences.h>
+#include <esp_timer.h>
+#endif
 
 #if USERPREFS_SNORR_NEIGHBOR_SIGNALS
 #include "MeshService.h"
@@ -46,6 +52,9 @@ int32_t SnorrNeighborModule::runOnce()
 {
 #if HAS_WIFI
     sendGatewayHealth();
+#ifdef SNORR_SD_GATEWAY
+    sendSdHealth();
+#endif
 #endif
     signals.expire(millis());
     if (!moduleConfig.neighbor_info.enabled || !signals.hasChanges())
@@ -85,6 +94,59 @@ int32_t SnorrNeighborModule::runOnce()
 }
 
 #if HAS_WIFI
+#ifdef SNORR_SD_GATEWAY
+void SnorrNeighborModule::sendSdHealth()
+{
+    struct Reservation { uint32_t sequence, utc; };
+    static Reservation last{};
+    static bool loaded = false;
+    static uint64_t lastSeconds = 0;
+    static bool sentThisBoot = false;
+    static int priorLink = -1;
+    const bool wifi = WiFi.status() == WL_CONNECTED;
+    int link = (wifi ? 1 : 0) | (wifi && mqtt && mqtt->isConnectedDirectly() ? 2 : 0);
+    if (link != priorLink) {
+        recorder::event(recorder::Link, 0, 0, link);
+        priorLink = link;
+    }
+    const uint64_t now = esp_timer_get_time() / 1000000;
+    const uint32_t utc = getValidTime(RTCQualityFromNet);
+    Preferences prefs;
+    if (!loaded) {
+        if (!prefs.begin("snorr-sd", false)) return;
+        if (prefs.isKey("daily") && prefs.getBytes("daily", &last, sizeof(last)) != sizeof(last)) return;
+        prefs.end();
+        loaded = true;
+    }
+    if (!snorr::sdDue(last.sequence, last.utc, utc, now - lastSeconds, sentThisBoot) ||
+        !moduleConfig.mqtt.enabled || !moduleConfig.mqtt.encryption_enabled || !config.network.wifi_enabled ||
+        channels.isDefaultChannel(channels.getPrimaryIndex()) || !config.lora.tx_enabled ||
+        !airTime->isTxAllowedChannelUtil(true) || !airTime->isTxAllowedAirUtil())
+        return;
+    auto p = allocDataPacket();
+    if (!p) return;
+    // Reserve this generation atomically before emission, including unknown-clock boots.
+    Reservation next{last.sequence + 1, utc};
+    if (!next.sequence || !prefs.begin("snorr-sd", false) || prefs.putBytes("daily", &next, sizeof(next)) != sizeof(next)) {
+        service->releaseToPool(p);
+        return;
+    }
+    prefs.end();
+    last = next;
+    lastSeconds = now;
+    sentThisBoot = true;
+    auto s = recorder::storage();
+    snorr::encodeSdHealth(p->decoded.payload.bytes, s.flags, utc ? getRTCQuality() : 0, nodeDB->getNodeNum(),
+                          recorder::bootId(), next.sequence, now, utc, s.used, s.total, s.drops);
+    p->decoded.payload.size = snorr::sdWireSize;
+    p->channel = channels.getPrimaryIndex();
+    p->to = NODENUM_BROADCAST;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    p->want_ack = p->decoded.want_response = false;
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
+}
+#endif
+
 void SnorrNeighborModule::sendGatewayHealth()
 {
     if (!moduleConfig.neighbor_info.enabled || !moduleConfig.neighbor_info.transmit_over_lora ||

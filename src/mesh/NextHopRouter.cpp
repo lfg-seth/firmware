@@ -1,4 +1,7 @@
 #include "NextHopRouter.h"
+#ifdef SNORR_SD_GATEWAY
+#include "mesh/SnorrRecorder.h"
+#endif
 #include "MeshTypes.h"
 #include "meshUtils.h"
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
@@ -48,6 +51,9 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     }
 
     if (seenRecently) {
+#ifdef SNORR_SD_GATEWAY
+        recorder::packet(recorder::Duplicate, *p);
+#endif
         printPacket("Ignore dupe incoming msg", p);
 
         if (p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA) {
