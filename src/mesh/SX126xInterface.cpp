@@ -233,19 +233,16 @@ template <typename T> bool SX126xInterface<T>::reconfigure()
     success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
-    assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setCurrentLimit(currentLimit);
     success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setCurrentLimit %s%d", radioLibErr, err);
-    assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setPreambleLength(preambleLength);
     success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setPreambleLength %s%d", radioLibErr, err);
-    assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setFrequency(getFreq());
     success &= (err == RADIOLIB_ERR_NONE);
@@ -259,7 +256,6 @@ template <typename T> bool SX126xInterface<T>::reconfigure()
     success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setOutputPower %s%d", radioLibErr, err);
-    assert(err == RADIOLIB_ERR_NONE);
 
     startReceive(); // restart receiving
 
@@ -419,8 +415,8 @@ template <typename T> void SX126xInterface<T>::resetAGC()
 
     LOG_DEBUG("SX126x AGC reset: warm sleep + Calibrate(0x7F)");
 
-    // 1. Warm sleep â€” powers down the entire analog frontend, resetting AGC state.
-    //    A plain standbyâ†’startReceive cycle does NOT reset the AGC.
+    // 1. Warm sleep — powers down the entire analog frontend, resetting AGC state.
+    //    A plain standby→startReceive cycle does NOT reset the AGC.
     lora.sleep(true);
 
     // 2. Wake to RC standby for stable calibration

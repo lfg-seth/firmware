@@ -230,7 +230,7 @@ void snapshot()
          bench, session, segment, targetCount ? targetIds[cursor % targetCount] : 0, interval, quiet.remaining(millis()), dropped,
          q.free, q.maxlen, successes, timeouts, deferred, rejected, suppressed, fresh(gps, millis()),
          lastBeat && recent(millis(), lastBeat, settings.heartbeatTimeout), lastSerial);
-    emit("profile", "%u,%u", experimental, config.lora.modem_preset);
+    emit("profile", "%u,%u,%u", experimental, config.lora.modem_preset, router->surveyProfileKnown);
     emit("settings", "%u,%u,%u,%u,%u,%u,%u,%u,%u", settings.interval, settings.timeout, settings.maxInterval, settings.gpsAge,
          settings.heartbeatTimeout, settings.gpsInterval, settings.utilTarget, settings.utilHigh, settings.adaptive);
     emit("targets", "%u,%u,%u,%u,%u,%u,%u,%u,%u", targetCount, targetIds[0], targetIds[1], targetIds[2], targetIds[3],
@@ -267,13 +267,13 @@ uint32_t ingestUtc(uint32_t clock)
 }
 bool canStart()
 {
-    return IS_CLIENT && generation && targetCount && utc() && config.lora.tx_enabled && config.lora.region &&
-           !config.lora.override_duty_cycle && (bench || fresh(gps, millis()));
+    return IS_CLIENT && router->surveyProfileKnown && generation && targetCount && utc() && config.lora.tx_enabled &&
+           config.lora.region && !config.lora.override_duty_cycle && (bench || fresh(gps, millis()));
 }
 bool sendFrame(Frame &f, int peer, uint32_t &id)
 {
-    if (!generation || peer < 0 || (f.type == Ping && !utc()) || !config.lora.tx_enabled || !config.lora.region ||
-        config.lora.override_duty_cycle)
+    if (!router->surveyProfileKnown || !generation || peer < 0 || (f.type == Ping && !utc()) || !config.lora.tx_enabled ||
+        !config.lora.region || config.lora.override_duty_cycle)
         return false;
     auto *p = router->allocForSending();
     if (!p)
@@ -454,6 +454,8 @@ void classify(meshtastic_MeshPacket &p, bool local)
 }
 bool suppress(const meshtastic_MeshPacket &p)
 {
+    if (p.survey_class == SurveyTx && !router->surveyProfileKnown)
+        return true;
     if (p.survey_class == PositionTx ||
         (p.survey_class == Autonomous &&
          (p.survey_block || (IS_CLIENT && running) || quiet.remaining(millis()) || p.survey_epoch != quietEpoch))) {
@@ -756,6 +758,8 @@ bool command(const uint8_t *buf, size_t len)
         previous = c;
         previousError = err;
     }
+    if (c.op == Profile && !router->surveyProfileKnown)
+        emit("fault", "radio_profile_unknown");
     emit("ack", "%u,%u,%u", c.serial, c.op, err);
     return true;
 }

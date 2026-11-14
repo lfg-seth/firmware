@@ -95,6 +95,7 @@ inline struct QueueState {
     unsigned free = 8, maxlen = 8;
 } q;
 inline struct FakeRouter {
+    bool surveyProfileKnown = true;
     bool exhausted = false;
     meshtastic_MeshPacket packet;
     unsigned sends = 0, cancels = 0;

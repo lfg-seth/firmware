@@ -251,9 +251,12 @@ bool Router::applySurveyPreset(meshtastic_Config_LoRaConfig_ModemPreset preset)
     if (!iface || !iface->surveyIdle() || !config.lora.use_preset) return false;
     const auto prior = config.lora.modem_preset;
     config.lora.modem_preset = preset;
-    if (iface->reconfigure()) return true;
+    if (iface->reconfigure()) {
+        surveyProfileKnown = true;
+        return true;
+    }
     config.lora.modem_preset = prior;
-    iface->reconfigure();
+    surveyProfileKnown = iface->reconfigure();
     return false;
 }
 #endif

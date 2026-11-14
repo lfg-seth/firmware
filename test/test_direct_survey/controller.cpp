@@ -197,6 +197,23 @@ int main()
         for (unsigned i = 0; i < 30; ++i)
             snapshot();
         assert(dropped && count == 16);
+        stop.serial = 10;
+        apply(stop);
+        beat.serial = 11;
+        apply(beat);
+        start.serial = 12;
+        start.args[0] = 1;
+        apply(start);
+        poll();
+        auto oldAttempt = attempt;
+        assert(pendingId);
+        ticks += settings.timeout + 1;
+        beat.serial = 13;
+        apply(beat);
+        poll();
+        assert(timeouts == 1 && successes == 1 && (attempt != oldAttempt || !pendingId));
+        fakeRouter.surveyProfileKnown = false;
+        assert(!canStart() && suppress(fakeRouter.packet));
     }
     puts(IS_CLIENT ? "survey client controller PASS" : "survey responder controller PASS");
 }

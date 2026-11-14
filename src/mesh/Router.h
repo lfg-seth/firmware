@@ -49,6 +49,7 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      */
     ErrorCode sendLocal(meshtastic_MeshPacket *p, RxSource src = RX_SRC_RADIO);
 #ifdef SNORR_DIRECT_SURVEY
+    bool surveyProfileKnown = true;
     bool applySurveyPreset(meshtastic_Config_LoRaConfig_ModemPreset preset);
 #endif
 
