@@ -38,11 +38,11 @@ template <typename T> bool SX126xInterface<T>::init()
 
 // Typically, the RF switch on SX126x boards is controlled by two signals, which are negations of each other (switched RFIO
 // paths). The negation is usually performed in hardware, or (suboptimal design) TXEN and RXEN are the two inputs to this style of
-// RF switch. On some boards, there is no hardware negation between CTRL and ¬CTRL, but CTRL is internally connected to DIO2, and
-// DIO2's switching is done by the SX126X itself, so the MCU can't control ¬CTRL at exactly the same time. One solution would be
-// to set ¬CTRL as SX126X_TXEN or SX126X_RXEN, but they may already be used for another purpose, such as controlling another
-// PA/LNA. Keeping ¬CTRL high seems to work, as long CTRL=1, ¬CTRL=1 has the opposite and stable RF path effect as CTRL=0 and
-// ¬CTRL=1, this depends on the RF switch, but it seems this usually works. Better hardware design, which is done most the time,
+// RF switch. On some boards, there is no hardware negation between CTRL and Â¬CTRL, but CTRL is internally connected to DIO2, and
+// DIO2's switching is done by the SX126X itself, so the MCU can't control Â¬CTRL at exactly the same time. One solution would be
+// to set Â¬CTRL as SX126X_TXEN or SX126X_RXEN, but they may already be used for another purpose, such as controlling another
+// PA/LNA. Keeping Â¬CTRL high seems to work, as long CTRL=1, Â¬CTRL=1 has the opposite and stable RF path effect as CTRL=0 and
+// Â¬CTRL=1, this depends on the RF switch, but it seems this usually works. Better hardware design, which is done most the time,
 // means this workaround is not necessary.
 #ifdef SX126X_ANT_SW // Perhaps add RADIOLIB_NC check, and beforehand define as such if it is undefined, but it is not commonly
                      // used and not part of the 'default' set of pin definitions.
@@ -208,40 +208,47 @@ template <typename T> bool SX126xInterface<T>::init()
 
 template <typename T> bool SX126xInterface<T>::reconfigure()
 {
-    RadioLibInterface::reconfigure();
+    bool success = RadioLibInterface::reconfigure();
 
     // set mode to standby
     setStandby();
 
     // configure publicly accessible settings
     int err = lora.setSpreadingFactor(sf);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
 
     err = lora.setBandwidth(bw);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
 
     err = lora.setCodingRate(cr);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
 
     err = lora.setSyncWord(syncWord);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setSyncWord %s%d", radioLibErr, err);
     assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setCurrentLimit(currentLimit);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setCurrentLimit %s%d", radioLibErr, err);
     assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setPreambleLength(preambleLength);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setPreambleLength %s%d", radioLibErr, err);
     assert(err == RADIOLIB_ERR_NONE);
 
     err = lora.setFrequency(getFreq());
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_INVALID_RADIO_SETTING);
 
@@ -249,13 +256,14 @@ template <typename T> bool SX126xInterface<T>::reconfigure()
         power = SX126X_MAX_POWER;
 
     err = lora.setOutputPower(power);
+    success &= (err == RADIOLIB_ERR_NONE);
     if (err != RADIOLIB_ERR_NONE)
         LOG_ERROR("SX126X setOutputPower %s%d", radioLibErr, err);
     assert(err == RADIOLIB_ERR_NONE);
 
     startReceive(); // restart receiving
 
-    return RADIOLIB_ERR_NONE;
+    return success;
 }
 
 template <typename T> int16_t SX126xInterface<T>::getCurrentRSSI()
@@ -411,8 +419,8 @@ template <typename T> void SX126xInterface<T>::resetAGC()
 
     LOG_DEBUG("SX126x AGC reset: warm sleep + Calibrate(0x7F)");
 
-    // 1. Warm sleep — powers down the entire analog frontend, resetting AGC state.
-    //    A plain standby→startReceive cycle does NOT reset the AGC.
+    // 1. Warm sleep â€” powers down the entire analog frontend, resetting AGC state.
+    //    A plain standbyâ†’startReceive cycle does NOT reset the AGC.
     lora.sleep(true);
 
     // 2. Wake to RC standby for stable calibration
