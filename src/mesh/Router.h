@@ -48,6 +48,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      * NOTE: This method will free the provided packet (even if we return an error code)
      */
     ErrorCode sendLocal(meshtastic_MeshPacket *p, RxSource src = RX_SRC_RADIO);
+#ifdef SNORR_DIRECT_SURVEY
+    bool applySurveyPreset(meshtastic_Config_LoRaConfig_ModemPreset preset);
+#endif
 
     /** Attempt to cancel a previously sent packet.  Returns true if a packet was found we could cancel */
     bool cancelSending(NodeNum from, PacketId id);
@@ -161,7 +164,7 @@ enum DecodeState { DECODE_SUCCESS, DECODE_FAILURE, DECODE_FATAL };
  *
  * @return true for success, false for corrupt packet.
  */
-DecodeState perhapsDecode(meshtastic_MeshPacket *p);
+DecodeState perhapsDecode(meshtastic_MeshPacket *p, bool inspectPort = false);
 
 /** Return 0 for success or a Routing_Error code for failure
  */

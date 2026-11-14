@@ -183,6 +183,9 @@ class RadioInterface
     /// Make sure the Driver is properly configured before calling init().
     /// \return true if initialisation succeeded.
     virtual bool reconfigure();
+#ifdef SNORR_DIRECT_SURVEY
+    bool surveyIdle() { return !sendingPacket && canSleep(); }
+#endif
 
     /** The delay to use for retransmitting dropped packets */
     [[nodiscard]] uint32_t getRetransmissionMsec(const meshtastic_MeshPacket *p);

@@ -244,10 +244,23 @@ meshtastic_QueueStatus Router::getQueueStatus()
         return iface->getQueueStatus();
 }
 
+#ifdef SNORR_DIRECT_SURVEY
+bool Router::applySurveyPreset(meshtastic_Config_LoRaConfig_ModemPreset preset)
+{
+    if (!iface || !iface->surveyIdle() || !config.lora.use_preset) return false;
+    const auto prior = config.lora.modem_preset;
+    config.lora.modem_preset = preset;
+    if (iface->reconfigure()) return true;
+    config.lora.modem_preset = prior;
+    iface->reconfigure();
+    return false;
+}
+#endif
+
 ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 {
 #ifdef SNORR_DIRECT_SURVEY
-    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == survey::Port) {
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == survey::SURVEY_PORT) {
         if (p->survey_class != survey::SurveyTx || !iface || !isBroadcast(p->to) || p->want_ack || p->hop_limit || p->decoded.want_response) {
             packetPool.release(p);
             return ERRNO_DISABLED;
@@ -446,11 +459,11 @@ void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Rout
     // FIXME, update nodedb here for any packet that passes through us
 }
 
-DecodeState perhapsDecode(meshtastic_MeshPacket *p)
+DecodeState perhapsDecode(meshtastic_MeshPacket *p, bool inspectPort)
 {
     concurrency::LockGuard g(cryptLock);
 
-    if (config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_KNOWN_ONLY &&
+    if (!inspectPort && config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_KNOWN_ONLY &&
         (nodeDB->getMeshNode(p->from) == NULL || !nodeDB->getMeshNode(p->from)->has_user)) {
         LOG_DEBUG("Node 0x%x not in nodeDB-> Rebroadcast mode KNOWN_ONLY will ignore packet", p->from);
         return DecodeState::DECODE_FAILURE;
@@ -612,7 +625,7 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
         if (isFromUs(p)) {
             p->decoded.has_bitfield = true;
 #ifdef SNORR_DIRECT_SURVEY
-            if (p->decoded.portnum != survey::Port)
+            if (p->decoded.portnum != survey::SURVEY_PORT)
 #endif
                 p->decoded.bitfield |= (config.lora.config_ok_to_mqtt << BITFIELD_OK_TO_MQTT_SHIFT);
             p->decoded.bitfield |= (p->decoded.want_response << BITFIELD_WANT_RESPONSE_SHIFT);

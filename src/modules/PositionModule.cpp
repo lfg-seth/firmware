@@ -470,6 +470,9 @@ int32_t PositionModule::runOnce()
 
 void PositionModule::sendLostAndFoundText()
 {
+#ifdef SNORR_SURVEY_CLIENT
+    return; // This autonomous text contains the tracked vehicle's coordinates.
+#endif
     meshtastic_MeshPacket *p = allocDataPacket();
     p->to = NODENUM_BROADCAST;
     char *message = new char[60];

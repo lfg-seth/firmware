@@ -193,7 +193,7 @@ bool PhoneAPI::handleToRadio(const uint8_t *buf, size_t bufLength)
             break;
         case meshtastic_ToRadio_xmodemPacket_tag:
             LOG_INFO("Got xmodem packet");
-#ifdef FSCom
+#if defined(FSCom) && !defined(SNORR_DIRECT_SURVEY)
             xModem.handlePacket(toRadioScratch.xmodemPacket);
 #endif
             break;
