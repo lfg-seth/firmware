@@ -1069,6 +1069,11 @@ typedef struct _meshtastic_MeshPacket {
     /* Local observation token, absent from the nanopb wire field list. */
     uint32_t snorr_rx_sequence;
 #endif
+#ifdef SNORR_DIRECT_SURVEY
+    /* Local metadata. Never serialized by nanopb or the RF header. */
+    uint8_t survey_class, survey_physical, survey_block;
+    uint32_t survey_epoch;
+#endif
 } meshtastic_MeshPacket;
 
 /* The bluetooth to device link:

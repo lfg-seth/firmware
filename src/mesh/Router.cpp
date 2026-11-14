@@ -1,4 +1,5 @@
 #include "Router.h"
+#include "modules/DirectSurvey.h"
 #ifdef SNORR_SD_GATEWAY
 #include "mesh/SnorrRecorder.h"
 #endif
@@ -245,6 +246,16 @@ meshtastic_QueueStatus Router::getQueueStatus()
 
 ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 {
+#ifdef SNORR_DIRECT_SURVEY
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == survey::Port) {
+        if (p->survey_class != survey::SurveyTx || !iface || !isBroadcast(p->to) || p->want_ack || p->hop_limit || p->decoded.want_response) {
+            packetPool.release(p);
+            return ERRNO_DISABLED;
+        }
+        return Router::send(p); // Bypass both reliability and next-hop retry scheduling.
+    }
+    survey::classify(*p, src != RX_SRC_USER && isFromUs(p));
+#endif
     if (p->to == 0) {
         LOG_ERROR("Packet received with to: of 0!");
     }
@@ -384,7 +395,11 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         }
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
-        if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt) {
+        if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt
+#ifdef SNORR_DIRECT_SURVEY
+            && p->survey_class != survey::SurveyTx
+#endif
+        ) {
             mqtt->onSend(*p, *p_decoded, chIndex);
         }
 #endif
@@ -392,7 +407,11 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     }
 
 #if HAS_UDP_MULTICAST
-    if (udpHandler && config.network.enabled_protocols & meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST) {
+    if (udpHandler && (config.network.enabled_protocols & meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST)
+#ifdef SNORR_DIRECT_SURVEY
+        && p->survey_class != survey::SurveyTx
+#endif
+    ) {
         udpHandler->onSend(const_cast<meshtastic_MeshPacket *>(p));
     }
 #endif
@@ -592,7 +611,10 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         if (isFromUs(p)) {
             p->decoded.has_bitfield = true;
-            p->decoded.bitfield |= (config.lora.config_ok_to_mqtt << BITFIELD_OK_TO_MQTT_SHIFT);
+#ifdef SNORR_DIRECT_SURVEY
+            if (p->decoded.portnum != survey::Port)
+#endif
+                p->decoded.bitfield |= (config.lora.config_ok_to_mqtt << BITFIELD_OK_TO_MQTT_SHIFT);
             p->decoded.bitfield |= (p->decoded.want_response << BITFIELD_WANT_RESPONSE_SHIFT);
         }
 
@@ -881,6 +903,13 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         return;
     }
 
+#ifdef SNORR_DIRECT_SURVEY
+    // Duplicate/upgrade filtering itself can retransmit. Consume survey traffic first.
+    if (survey::intercept(*p)) {
+        packetPool.release(p);
+        return;
+    }
+#endif
     if (shouldFilterReceived(p)) {
         LOG_DEBUG("Incoming msg was filtered from 0x%x", p->from);
         packetPool.release(p);

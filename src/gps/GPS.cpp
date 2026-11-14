@@ -5,6 +5,7 @@
 #if !MESHTASTIC_EXCLUDE_GPS
 #include "Default.h"
 #include "GPS.h"
+#include "modules/DirectSurvey.h"
 #include "GpioLogic.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
@@ -1748,6 +1749,10 @@ bool GPS::lookForLocation()
     }
 
     // We know the solution is fresh and valid, so just read the data
+#ifdef SNORR_SURVEY_CLIENT
+    const bool newLocation = reader.location.isUpdated();
+    const uint32_t locationAge = reader.location.age();
+#endif
     auto loc = reader.location.value();
 
     // Bail out EARLY to avoid overwriting previous good data (like #857)
@@ -1824,6 +1829,11 @@ bool GPS::lookForLocation()
         p.ground_speed = reader.speed.kmph();
     }
 
+#ifdef SNORR_SURVEY_CLIENT
+    if (newLocation)
+        survey::fix(p, locationAge, reader.time.centisecond() * 10, reader.altitude.age() < GPS_SOL_EXPIRY_MS,
+                    reader.satellites.age() < GPS_SOL_EXPIRY_MS);
+#endif
     return true;
 }
 

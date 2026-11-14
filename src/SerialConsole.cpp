@@ -1,4 +1,5 @@
 #include "SerialConsole.h"
+#include "modules/DirectSurvey.h"
 #include "modules/SnorrWifi.h"
 #include "Default.h"
 #include "NodeDB.h"
@@ -108,6 +109,17 @@ int32_t SerialConsole::runOnce()
 #endif
 
     int32_t delay = runOncePart();
+#ifdef SNORR_DIRECT_SURVEY
+    survey::poll();
+    if (config.has_lora && config.security.serial_enabled && Port) {
+        for (unsigned i = 0; i < 4; ++i) {
+            size_t n = survey::pop(txBuf + 4, sizeof(txBuf) - 4);
+            if (!n) break;
+            emitTxBuffer(n);
+        }
+    }
+    return delay < 50 ? delay : 50; // Timers still run with the USB cable removed.
+#endif
 #ifdef SNORR_SD_GATEWAY
     if (survey && (!config.security.serial_enabled || millis() - surveyStart >= 1800000)) survey = false;
     if (survey) {
@@ -167,6 +179,9 @@ bool SerialConsole::handleToRadio(const uint8_t *buf, size_t len)
         usingProtobufs = true;
         canWrite = true;
 
+#ifdef SNORR_DIRECT_SURVEY
+        if (survey::command(buf, len)) return true;
+#endif
         return StreamAPI::handleToRadio(buf, len);
     } else {
         return false;

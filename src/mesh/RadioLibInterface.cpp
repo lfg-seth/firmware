@@ -1,4 +1,5 @@
 #include "RadioLibInterface.h"
+#include "modules/DirectSurvey.h"
 #ifdef SNORR_SD_GATEWAY
 #include "mesh/SnorrRecorder.h"
 #endif
@@ -511,6 +512,9 @@ void RadioLibInterface::handleTransmitInterrupt()
 #ifdef SNORR_SD_GATEWAY
     if (sendingPacket) recorder::event(recorder::TxDone, sendingPacket->from, sendingPacket->id);
 #endif
+#ifdef SNORR_DIRECT_SURVEY
+    if (sendingPacket) survey::txDone(*sendingPacket);
+#endif
     if (sendingPacket)
         completeSending();
     powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn); // But our transmitter is definitely off now
@@ -637,6 +641,9 @@ void RadioLibInterface::handleReceiveInterrupt()
 
             // Keep the assigned fields in sync with src/mqtt/MQTT.cpp:onReceiveProto
             mp->from = radioBuffer.header.from;
+#ifdef SNORR_DIRECT_SURVEY
+            mp->survey_physical = 1;
+#endif
 #ifdef SNORR_SD_GATEWAY
             mp->snorr_rx_sequence = observation;
 #endif
@@ -721,6 +728,13 @@ bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
 #endif
     /* NOTE: Minimize the actions before startTransmit() to keep the time between
              channel scan and actual transmit as low as possible to avoid collisions. */
+#ifdef SNORR_DIRECT_SURVEY
+    if (survey::suppress(*txp)) {
+        packetPool.release(txp);
+        setTransmitDelay();
+        return false;
+    }
+#endif
     if (disabled || !config.lora.tx_enabled) {
         LOG_WARN("Drop Tx packet because LoRa Tx disabled");
         packetPool.release(txp);
@@ -747,6 +761,9 @@ bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
             // bits
             enableInterrupt(isrTxLevel0);
             lastTxStart = millis();
+#ifdef SNORR_DIRECT_SURVEY
+            survey::txStart(*txp, numbytes, getPacketTime(static_cast<uint32_t>(numbytes)));
+#endif
             printPacket("Started Tx", txp);
 #ifdef LED_LORA
             digitalWrite(LED_LORA, LED_STATE_ON);
