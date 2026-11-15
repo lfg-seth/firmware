@@ -27,6 +27,58 @@ meshtastic_MeshPacket incoming(Frame f, uint32_t id, uint32_t source, bool autho
     p.decoded.payload.size = sizeof f;
     return p;
 }
+#ifdef SNORR_SURVEY_CLIENT
+void checkExpandedEnrollment()
+{
+    storage.clear();
+    generation = 0;
+    enrollment = {};
+    running = paused = false;
+    EnrollmentRecord<8> old{};
+    old.generation = 7;
+    old.data.version = 1;
+    memset(old.data.group, 8, 32);
+    for (unsigned i = 0; i < 8; ++i) {
+        old.data.peer[i].id = 300 + i;
+        memset(old.data.peer[i].pub, 7, 32);
+    }
+    maskGroup(old);
+    checksum(old, old.digest);
+    auto legacy = FSCom.open(legacyFiles[1], FILE_O_WRITE);
+    legacy.write(reinterpret_cast<const uint8_t *>(&old), sizeof old);
+    legacy.close();
+    setup();
+    assert(generation == 7 && peerIndex(307) == 7 && enrollment.group[0] == 8);
+    auto add = make(Enroll, 20);
+    memset(add.keys, 8, sizeof add.keys);
+    for (uint32_t id = 308; id < 312; ++id) {
+        add.args[0] = id;
+        assert(enroll(add));
+    }
+    add.args[0] = 312;
+    assert(!enroll(add));
+    generation = 0;
+    enrollment = {};
+    setup();
+    assert(generation == 11 && peerIndex(311) == 11 && peerIndex(307) == 7);
+    auto t = make(Target, 30);
+    t.count = 10;
+    for (unsigned i = 0; i < t.count; ++i)
+        t.args[i] = 302 + i;
+    apply(t);
+    assert(!previousError && targetCount == 10 && targetIds[9] == 311);
+    ++t.serial;
+    t.count = 11;
+    apply(t);
+    assert(previousError && targetCount == 10);
+    storage[files[1]].back() ^= 1;
+    generation = 0;
+    setup();
+    assert(generation == 10 && peerIndex(310) == 10 && peerIndex(311) < 0);
+    EnrollmentRecord<8> rollback{};
+    assert(readRecord(legacyFiles[1], rollback) && rollback.generation == 7 && rollback.data.peer[7].id == 307);
+}
+#endif
 int main()
 {
     setup();
@@ -215,5 +267,8 @@ int main()
         fakeRouter.surveyProfileKnown = false;
         assert(!canStart() && suppress(fakeRouter.packet));
     }
+#ifdef SNORR_SURVEY_CLIENT
+    checkExpandedEnrollment();
+#endif
     puts(IS_CLIENT ? "survey client controller PASS" : "survey responder controller PASS");
 }

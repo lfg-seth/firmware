@@ -20,22 +20,24 @@ constexpr bool IS_CLIENT = true;
 #else
 constexpr bool IS_CLIENT = false;
 #endif
-constexpr unsigned MAX_PEERS = 8;
+constexpr unsigned LEGACY_PEERS = 8;
+constexpr unsigned MAX_PEERS = IS_CLIENT ? 12 : LEGACY_PEERS;
+constexpr unsigned MAX_TARGETS = IS_CLIENT ? sizeof(Command::args) / sizeof(uint32_t) : LEGACY_PEERS;
 struct Peer {
     uint32_t id;
     uint8_t pub[32];
 };
-struct Enrollment {
+template <unsigned PeerCount> struct StoredEnrollment {
     uint32_t version;
     uint8_t group[32];
-    Peer peer[MAX_PEERS];
+    Peer peer[PeerCount];
 };
-Enrollment enrollment{};
+StoredEnrollment<MAX_PEERS> enrollment{};
 uint8_t pairKeys[MAX_PEERS][32]{};
 bool ready = false, stream = false, bench = false, running = false, paused = false;
 uint32_t boot, lastSerial, seq, dropped, lastBeat, clockUtc, clockMs, nextDue, interval;
 uint32_t session, segment, attempt, pendingId, pendingTarget, queuedAt, txAt, txEnd, txBytes, txEstimate;
-uint32_t targetIds[MAX_PEERS]{}, targetCount, cursor, lastGps, lastState, quietEpoch;
+uint32_t targetIds[MAX_TARGETS]{}, targetCount, cursor, lastGps, lastState, quietEpoch;
 uint32_t successes, timeouts, deferred, rejected, suppressed;
 uint32_t lastPongId, lastPongSession, lastPongAttempt, lastPongTarget, completedAt;
 uint8_t remoteUtil;
@@ -113,12 +115,14 @@ bool different(const uint8_t *a, const uint8_t *b, size_t len)
 }
 // Two alternating, read-back-verified records so interrupted enrollment
 // preserves the previous file.
-struct Record {
+template <unsigned PeerCount> struct EnrollmentRecord {
     uint32_t generation;
-    Enrollment data;
+    StoredEnrollment<PeerCount> data;
     uint8_t digest[32];
 };
-void maskGroup(Record &r)
+using Record = EnrollmentRecord<MAX_PEERS>;
+static_assert(sizeof(EnrollmentRecord<LEGACY_PEERS>) == 360, "preserve the v1 enrollment format");
+template <unsigned N> void maskGroup(EnrollmentRecord<N> &r)
 {
     SHA256 hash;
     uint8_t mask[32];
@@ -129,27 +133,42 @@ void maskGroup(Record &r)
     for (unsigned i = 0; i < 32; ++i)
         r.data.group[i] ^= mask[i];
 }
-constexpr const char *files[] = {"/survey-a", "/survey-b"};
+constexpr const char *legacyFiles[] = {"/survey-a", "/survey-b"};
+constexpr const char *files[] = {IS_CLIENT ? "/survey-c2a" : legacyFiles[0], IS_CLIENT ? "/survey-c2b" : legacyFiles[1]};
 uint32_t generation;
-void checksum(Record &r, uint8_t out[32])
+template <unsigned N> void checksum(EnrollmentRecord<N> &r, uint8_t out[32])
 {
     SHA256 hash;
     hash.resetHMAC(config.security.private_key.bytes, 32);
     hash.update("survey-record-v1", 16);
-    hash.update(&r, offsetof(Record, digest));
+    hash.update(&r, offsetof(EnrollmentRecord<N>, digest));
     hash.finalizeHMAC(config.security.private_key.bytes, 32, out, 32);
 }
-bool readRecord(unsigned index, Record &r)
+template <unsigned N> bool readRecord(const char *path, EnrollmentRecord<N> &r)
 {
-    auto f = FSCom.open(files[index], FILE_O_READ);
+    auto f = FSCom.open(path, FILE_O_READ);
     if (!f || f.size() != sizeof r || f.read((uint8_t *)&r, sizeof r) != sizeof r)
         return false;
     uint8_t check[32];
     checksum(r, check);
-    if (r.data.version != 1 || different(check, r.digest, 32))
+    if (r.data.version != (N == LEGACY_PEERS ? 1U : 2U) || different(check, r.digest, 32))
         return false;
     maskGroup(r);
     return true;
+}
+template <unsigned N> void loadEnrollment(const char *const (&paths)[2])
+{
+    static_assert(N <= MAX_PEERS, "enrollment must fit");
+    for (const char *path : paths) {
+        EnrollmentRecord<N> r{};
+        if (readRecord(path, r) && r.generation > generation) {
+            generation = r.generation;
+            enrollment = {};
+            enrollment.version = r.data.version;
+            memcpy(enrollment.group, r.data.group, sizeof r.data.group);
+            memcpy(enrollment.peer, r.data.peer, sizeof r.data.peer);
+        }
+    }
 }
 bool enroll(const Command &c)
 {
@@ -177,7 +196,7 @@ bool enroll(const Command &c)
     Record r{};
     r.generation = generation + 1;
     r.data = enrollment;
-    r.data.version = 1;
+    r.data.version = IS_CLIENT ? 2 : 1;
     r.data.peer[i].id = c.args[0];
     memcpy(r.data.peer[i].pub, c.keys, 32);
     memcpy(r.data.group, c.keys + 32, 32);
@@ -191,7 +210,7 @@ bool enroll(const Command &c)
     f.close();
     maskGroup(r);
     Record verified{};
-    if (!readRecord(slot, verified) || memcmp(&r, &verified, sizeof r))
+    if (!readRecord(files[slot], verified) || memcmp(&r, &verified, sizeof r))
         return false;
     enrollment = r.data;
     generation = r.generation;
@@ -233,8 +252,11 @@ void snapshot()
     emit("profile", "%u,%u,%u", experimental, config.lora.modem_preset, router->surveyProfileKnown);
     emit("settings", "%u,%u,%u,%u,%u,%u,%u,%u,%u", settings.interval, settings.timeout, settings.maxInterval, settings.gpsAge,
          settings.heartbeatTimeout, settings.gpsInterval, settings.utilTarget, settings.utilHigh, settings.adaptive);
-    emit("targets", "%u,%u,%u,%u,%u,%u,%u,%u,%u", targetCount, targetIds[0], targetIds[1], targetIds[2], targetIds[3],
-         targetIds[4], targetIds[5], targetIds[6], targetIds[7]);
+    char ids[MAX_TARGETS * 11 + 1]{};
+    size_t used = 0;
+    for (auto id : targetIds)
+        used += snprintf(ids + used, sizeof(ids) - used, ",%lu", (unsigned long)id);
+    emit("targets", "%u%s", targetCount, ids);
 }
 void outcome(const char *status, uint32_t now, const meshtastic_MeshPacket *p = nullptr, const Frame *f = nullptr)
 {
@@ -401,13 +423,11 @@ void setup()
     boot = generatePacketId();
     if (!boot)
         boot = 1;
-    for (unsigned i = 0; i < 2; ++i) {
-        Record r{};
-        if (readRecord(i, r) && r.generation > generation) {
-            generation = r.generation;
-            enrollment = r.data;
-        }
-    }
+    loadEnrollment<LEGACY_PEERS>(legacyFiles);
+#ifdef SNORR_SURVEY_CLIENT
+    // Leave both legacy files intact for an application-only rollback.
+    loadEnrollment<MAX_PEERS>(files);
+#endif
     for (unsigned i = 0; i < MAX_PEERS; ++i)
         if (enrollment.peer[i].id && !derive(i))
             enrollment.peer[i].id = 0;
@@ -695,7 +715,7 @@ bool command(const uint8_t *buf, size_t len)
             break;
         }
         case Target:
-            if (!IS_CLIENT || running || !c.count || c.count > MAX_PEERS)
+            if (!IS_CLIENT || running || !c.count || c.count > MAX_TARGETS)
                 err = 3;
             else {
                 for (unsigned i = 0; i < c.count; ++i) {
