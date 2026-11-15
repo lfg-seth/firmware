@@ -13,6 +13,15 @@ no sleep, and 300-second device, power, SNNS and SNGH baselines.
 
 ## SNSD v1
 
+`heltec-v4-sd-gateway-survey` retains this gateway profile and adds the
+existing authenticated direct-hop survey responder (`SNORR_DIRECT_SURVEY`),
+without the GPS tester/client role. Physical USB enrollment must pin the
+authorized tester's public key and the existing cohort key before PING/PONG
+works. The direct-hop, replay and quiet-window interlocks remain in effect;
+ordinary gateway reports resume after quiet expires. Enrollment does not
+change Meshtastic keys, channels or the saved radio profile. The original
+`heltec-v4-sd-gateway` target remains available without survey support.
+
 Exactly 52 bytes, little-endian. Bytes 0–3 are ASCII SNSD, byte 4 is 1.
 Byte 5 bits 0–3 mean card detected, mounted, last write healthy, and valid
 mounted-filesystem counts. No card-detect switch is fitted. An unsuccessful
