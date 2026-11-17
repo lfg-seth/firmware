@@ -7,6 +7,9 @@
 #include <Preferences.h>
 #include <esp_attr.h>
 #include <esp_partition.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <hal/gpio_ll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -14,6 +17,17 @@
 namespace site {
 namespace {
 Preferences prefs;
+struct ButtonEdge {
+  uint32_t time;
+  bool down;
+};
+StaticQueue_t edgeQueueStorage;
+uint8_t edgeData[32 * sizeof(ButtonEdge)];
+QueueHandle_t edgeQueue = nullptr;
+volatile bool lostEdges = false;
+bool rawButton = false, stableButton = false, heldButton = false,
+     waitingTap = false;
+uint32_t rawSince = 0, pressedAt = 0, lastRelease = 0;
 class Flash : public Media {
 public:
   const esp_partition_t *p = nullptr;
@@ -337,6 +351,8 @@ bool setUsbTime(uint32_t t) {
   return true;
 }
 void setup() {
+  edgeQueue =
+      xQueueCreateStatic(32, sizeof(ButtonEdge), edgeData, &edgeQueueStorage);
   bool opened = prefs.begin("sitesurvey", false);
   flash.p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
                                      esp_partition_subtype_t(0x40), "sites");
@@ -348,41 +364,66 @@ void setup() {
     selected = defaultPair;
   ready = true;
 }
-void button(bool sample) {
-  if (!ready)
+void IRAM_ATTR buttonEdge() {
+  if (!edgeQueue)
     return;
-  static bool raw = false, stable = false, held = false, waiting = false;
-  static uint32_t edge = 0, pressed = 0, released = 0;
-  uint32_t now = millis();
-  if (sample != raw) {
-    raw = sample;
-    edge = now;
-  }
-  if (raw != stable && now - edge >= 35) {
-    stable = raw;
-    if (stable) {
-      pressed = now;
-      held = false;
-    } else if (!held) {
-      if (view == View::Walk && waiting && now - released < 330) {
-        waiting = false;
+  ButtonEdge event{uint32_t(millis()),
+                   gpio_ll_get_level(&GPIO, gpio_num_t(BUTTON_PIN)) == 0};
+  BaseType_t wake = pdFALSE;
+  if (xQueueSendFromISR(edgeQueue, &event, &wake) != pdTRUE)
+    lostEdges = true;
+  if (wake)
+    portYIELD_FROM_ISR();
+}
+static void advanceButton(uint32_t now) {
+  if (rawButton != stableButton && now - rawSince >= 35) {
+    stableButton = rawButton;
+    if (stableButton) {
+      pressedAt = rawSince;
+      heldButton = false;
+    } else if (!heldButton) {
+      if (view == View::Walk && waitingTap && rawSince - lastRelease < 330) {
+        waitingTap = false;
         tap(true);
       } else if (view == View::Walk) {
-        waiting = true;
-        released = now;
+        waitingTap = true;
+        lastRelease = rawSince;
       } else
         tap(false);
     }
   }
-  if (stable && !held && now - pressed >= 850) {
-    held = true;
-    waiting = false;
+  if (rawButton && stableButton && !heldButton && now - pressedAt >= 850) {
+    heldButton = true;
+    waitingTap = false;
     hold();
   }
-  if (waiting && !stable && now - released >= 330) {
-    waiting = false;
+  if (waitingTap && !stableButton && now - lastRelease >= 330) {
+    waitingTap = false;
     tap(false);
   }
+}
+void button() {
+  if (!ready || !edgeQueue)
+    return;
+  if (lostEdges) {
+    lostEdges = false;
+    xQueueReset(edgeQueue);
+    rawButton = stableButton =
+        gpio_ll_get_level(&GPIO, gpio_num_t(BUTTON_PIN)) == 0;
+    heldButton = true;
+    waitingTap = false;
+    rawSince = millis();
+    return;
+  }
+  ButtonEdge e;
+  while (xQueueReceive(edgeQueue, &e, 0) == pdTRUE) {
+    advanceButton(e.time);
+    if (e.down != rawButton) {
+      rawButton = e.down;
+      rawSince = e.time;
+    }
+  }
+  advanceButton(millis());
 }
 bool pending(unsigned ordinal, uint32_t target, uint32_t now) {
   if (!ordinal || ordinal > count(displayed) * (sweeping ? 1 : Rounds))

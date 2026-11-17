@@ -294,8 +294,12 @@ void outcome(const char *status, uint32_t now, const meshtastic_MeshPacket *p = 
             r.upRssi = f->rssi;
             r.downRssi = p->rx_rssi;
             r.upQuarter = f->snrQuarter;
-            r.downQuarter = int16_t(lroundf(p->rx_snr * 4));
-            r.valid = site::UpSnr | site::DownSnr;
+            if (r.upQuarter >= -128 && r.upQuarter <= 127)
+                r.valid |= site::UpSnr;
+            if (p->rx_snr >= -32.0f && p->rx_snr <= 31.75f) {
+                r.downQuarter = int16_t(lroundf(p->rx_snr * 4));
+                r.valid |= site::DownSnr;
+            }
             if (r.upRssi < 0)
               r.valid |= site::UpRssi;
             if (r.downRssi < 0)
@@ -801,7 +805,7 @@ bool command(const uint8_t *buf, size_t len)
     memcpy(&c, buf, len);
 #ifdef SNORR_SITE_HANDHELD
     if (field ||
-        (c.op != Hello && c.op != State && c.op != Enroll && c.op != Clock)) {
+        (c.op != Hello && c.op != State && c.op != Enroll && c.op != Clock && c.op != Configure)) {
         emit("ack", "%u,%u,6", c.serial, c.op);
         return true;
     }
@@ -858,6 +862,15 @@ bool command(const uint8_t *buf, size_t len)
             break;
         case Configure: {
             Settings s{c.args[0], c.args[1], c.args[2], c.args[3], c.args[4], c.args[5], c.args[6], c.args[7], c.args[8]};
+#ifdef SNORR_SITE_HANDHELD
+            // USB may lengthen spacing/windows for a measured comparison. Retain airtime admission and local start.
+            const Settings production{};
+            if(s.interval<production.interval || s.timeout<production.timeout || s.maxInterval!=production.maxInterval ||
+               s.adaptive!=production.adaptive || s.utilTarget!=production.utilTarget || s.utilHigh!=production.utilHigh) {
+                err=3;
+                break;
+            }
+#endif
             if (!IS_CLIENT || running || c.count != 9 || !s.valid())
                 err = 3;
             else {

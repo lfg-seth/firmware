@@ -4,7 +4,8 @@
 class OLEDDisplay;
 namespace site {
 void setup();
-void button(bool down);
+void button();
+void buttonEdge();
 void draw(OLEDDisplay *display);
 bool pending(unsigned ordinal, uint32_t target, uint32_t now);
 bool result(unsigned ordinal, uint32_t now, Result value);

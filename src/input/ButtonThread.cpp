@@ -1,4 +1,5 @@
 #include "ButtonThread.h"
+#include "modules/SiteHandheld.h"
 #include "meshUtils.h"
 
 #include "configuration.h"
@@ -37,6 +38,10 @@ bool ButtonThread::initButton(const ButtonConfig &config)
     _activeLow = config.activeLow;
     _touchQuirk = config.touchQuirk;
     _intRoutine = config.intRoutine;
+#ifdef SNORR_SITE_HANDHELD
+    if (_pinNum == BUTTON_PIN)
+        _intRoutine = site::buttonEdge;
+#endif
     _pressHandler = config.onPress;
     _releaseHandler = config.onRelease;
     _suppressLeadUp = config.suppressLeadUpSound;
@@ -117,11 +122,11 @@ bool ButtonThread::initButton(const ButtonConfig &config)
     return true;
 }
 
-#include "modules/SiteHandheld.h"
 int32_t ButtonThread::runOnce()
 {
 #ifdef SNORR_SITE_HANDHELD
-    site::button(isButtonPressed(_pinNum));
+    if (_pinNum == BUTTON_PIN)
+        site::button();
     canSleep = false;
     return 15;
 #endif
