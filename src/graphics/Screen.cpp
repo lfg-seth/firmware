@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Throttle.h"
 #include "configuration.h"
 #include "meshUtils.h"
+#include "modules/SiteHandheld.h"
 #if HAS_SCREEN
 #include "EInkParallelDisplay.h"
 #include <OLEDDisplay.h>
@@ -803,6 +804,9 @@ void Screen::setup()
 
 void Screen::setOn(bool on, FrameCallback einkScreensaver)
 {
+#ifdef SNORR_SITE_HANDHELD
+    return; // Dedicated handheld keeps its initialized OLED visible on battery.
+#endif
 #if defined(T_LORA_PAGER)
     if (cardKbI2cImpl)
         cardKbI2cImpl->toggleBacklight(on);
@@ -868,6 +872,10 @@ int32_t Screen::runOnce()
         enabled = false;
         return RUN_SAME;
     }
+#ifdef SNORR_SITE_HANDHELD
+    site::draw(dispdev);
+    return 160;
+#endif
 
     if (displayHeight == 0) {
         displayHeight = dispdev->getHeight();

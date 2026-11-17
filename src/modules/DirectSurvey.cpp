@@ -1,4 +1,5 @@
 #include "DirectSurvey.h"
+#include "SiteHandheld.h"
 #ifdef SNORR_DIRECT_SURVEY
 #include "Channels.h"
 #include "FSCommon.h"
@@ -47,6 +48,15 @@ QuietWindow quiet;
 Settings settings;
 Command previous{};
 uint8_t previousError;
+#ifdef SNORR_SITE_HANDHELD
+bool field = false, siteRun = false, finishing = false;
+unsigned budget = 0;
+uint32_t fieldStarted = 0, lastFieldAttempt = 0, fieldGap = 0;
+bool withinFieldWindow(uint32_t now) {
+    return field && running && budget &&
+           recent(now, fieldStarted, 30UL * 60 * 1000);
+}
+#endif
 struct Fix {
     bool known, alt, sats;
     int32_t lat, lon, height;
@@ -87,8 +97,12 @@ void emit(const char *type, const char *fmt, ...)
 
 uint32_t utc()
 {
+#ifdef SNORR_SITE_HANDHELD
+    return site::clockTime();
+#else
     uint32_t trusted = getValidTime(RTCQualityNTP);
     return trusted ? trusted : clockUtc ? clockUtc + (millis() - clockMs) / 1000 : 0;
+#endif
 }
 int peerIndex(uint32_t id)
 {
@@ -272,6 +286,40 @@ void outcome(const char *status, uint32_t now, const meshtastic_MeshPacket *p = 
     lastPongId = p ? p->id : 0;
     completedAt = now;
     pendingId = 0;
+#ifdef SNORR_SITE_HANDHELD
+    if (field) {
+        site::Result r{};
+        if (f && p) {
+            r.outcome = uint8_t(site::Outcome::Reply);
+            r.upRssi = f->rssi;
+            r.downRssi = p->rx_rssi;
+            r.upQuarter = f->snrQuarter;
+            r.downQuarter = int16_t(lroundf(p->rx_snr * 4));
+            r.valid = site::UpSnr | site::DownSnr;
+            if (r.upRssi < 0)
+              r.valid |= site::UpRssi;
+            if (r.downRssi < 0)
+              r.valid |= site::DownRssi;
+            if (txAt) {
+              r.valid |= site::Rtt;
+              r.rtt = now - txAt;
+            }
+        } else if (!strcmp(status, "timeout"))
+            r.outcome = uint8_t(site::Outcome::Timeout);
+        else if (!strcmp(status, "deferred"))
+            r.outcome = uint8_t(site::Outcome::Deferred);
+        else if (!strcmp(status, "rejected"))
+            r.outcome = uint8_t(site::Outcome::Rejected);
+        bool saved = site::result(attempt, now, r);
+        if (!saved || --budget == 0 || finishing) {
+            running = field = false;
+            if (saved)
+              site::stopped(finishing);
+            else
+              site::fault("Flash write failed");
+        }
+    }
+#endif
 }
 void halt(const char *reason, bool keep)
 {
@@ -417,6 +465,65 @@ bool acceptEpoch(uint32_t source, uint32_t packet, uint32_t epoch, bool authoriz
 }
 } // namespace
 
+#ifdef SNORR_SITE_HANDHELD
+bool fieldReady(uint16_t mask) {
+    if (!ready || !mask || (mask & ~site::All) || !generation || !utc() ||
+        !router->surveyProfileKnown || !config.lora.tx_enabled ||
+        config.lora.override_duty_cycle ||
+        config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_US ||
+        !config.lora.use_preset ||
+        config.lora.modem_preset !=
+            meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST ||
+        config.lora.channel_num != 35)
+        return false;
+    for (unsigned i = 0; i < site::TargetCount; ++i)
+        if ((mask & (1U << i)) && peerIndex(site::targets[i].id) < 0)
+            return false;
+    return true;
+}
+bool fieldStart(uint16_t mask, bool saved) {
+    if (running || !fieldReady(mask))
+        return false;
+    targetCount = site::count(mask);
+    for (unsigned i = 0; i < targetCount; ++i)
+        targetIds[i] = site::targets[site::targetAt(mask, i)].id;
+    cursor = attempt = 0;
+    session = generatePacketId();
+    if (!session || session == lastPongSession)
+        session = lastPongSession + 1;
+    if (!session)
+        session = 1;
+    segment = 1;
+    budget = targetCount * (saved ? site::Rounds : 1);
+    siteRun = saved;
+    finishing = paused = false;
+    running = field = true;
+    fieldStarted = millis();
+    interval = settings.interval;
+    uint32_t elapsed = fieldStarted - lastFieldAttempt;
+    nextDue = fieldStarted +
+              ((fieldGap && elapsed < fieldGap) ? fieldGap - elapsed : 0);
+    ++quietEpoch;
+    return true;
+}
+void fieldFinish() {
+    if (!field || !siteRun)
+        return;
+    finishing = true;
+    if (!pendingId) {
+        running = field = false;
+        site::stopped(true);
+    }
+}
+void cancelWalk() {
+    if (!field || siteRun)
+        return;
+    field = running = false;
+    if (pendingId)
+        outcome("cancelled", millis());
+}
+#endif
+
 void setup()
 {
     productionPreset = config.lora.modem_preset;
@@ -439,6 +546,9 @@ void setup()
         }
     }
     ready = true;
+#ifdef SNORR_SITE_HANDHELD
+    site::setup();
+#endif
 }
 size_t pop(uint8_t *buf, size_t limit)
 {
@@ -474,6 +584,12 @@ void classify(meshtastic_MeshPacket &p, bool local)
 }
 bool suppress(const meshtastic_MeshPacket &p)
 {
+#ifdef SNORR_SITE_HANDHELD
+    // The instrument uses its enrolled survey identity only for locally
+    // initiated survey exchanges.
+    if (p.survey_class != SurveyTx)
+        return true;
+#endif
     if (p.survey_class == SurveyTx && !router->surveyProfileKnown)
         return true;
     if (p.survey_class == PositionTx ||
@@ -483,8 +599,13 @@ bool suppress(const meshtastic_MeshPacket &p)
         return true;
     }
     if (IS_CLIENT && p.survey_class == SurveyTx)
+#ifdef SNORR_SITE_HANDHELD
+        return !withinFieldWindow(millis()) || p.id != pendingId ||
+               !recent(millis(), queuedAt, settings.timeout);
+#else
         return !running || p.id != pendingId || !recent(millis(), lastBeat, settings.heartbeatTimeout) ||
                (!bench && !fresh(gps, millis())) || !recent(millis(), queuedAt, settings.timeout);
+#endif
     return false;
 }
 bool intercept(meshtastic_MeshPacket &p)
@@ -593,10 +714,21 @@ void poll()
     quiet.tick(now);
     if (gps.known && !recent(now, gps.stamp, 60000))
         gps.known = false;
+#ifdef SNORR_SITE_HANDHELD
+    if (field && !withinFieldWindow(now)) {
+        if (siteRun)
+            fieldFinish();
+        else {
+            cancelWalk();
+            site::stopped(false);
+        }
+    }
+#else
     if (running && (!config.security.serial_enabled || !recent(now, lastBeat, settings.heartbeatTimeout)))
         halt("transport_lost", true);
     if (running && !bench && !fresh(gps, now))
         halt("gps_stale", true);
+#endif
     if (running && pendingId && !recent(now, queuedAt, settings.timeout)) {
         ++timeouts;
         outcome("timeout", now);
@@ -626,6 +758,15 @@ void poll()
     txAt = txEnd = txBytes = txEstimate = 0;
     queuedAt = now;
     nextDue = now + interval;
+#ifdef SNORR_SITE_HANDHELD
+    if (!field || !budget || !site::pending(attempt, pendingTarget, now)) {
+        running = field = false;
+        site::fault("Journal unavailable");
+        return;
+    }
+    lastFieldAttempt = now;
+    fieldGap = interval;
+#endif
     atSend = gps;
     sendFix("sendfix", atSend, now, attempt);
     emit("attempt", "%u,%u,%u,%u,%u,%u,%u,%u", session, segment, attempt, pendingTarget, bench, queuedAt, interval, util);
@@ -658,6 +799,13 @@ bool command(const uint8_t *buf, size_t len)
     }
     Command c;
     memcpy(&c, buf, len);
+#ifdef SNORR_SITE_HANDHELD
+    if (field ||
+        (c.op != Hello && c.op != State && c.op != Enroll && c.op != Clock)) {
+        emit("ack", "%u,%u,6", c.serial, c.op);
+        return true;
+    }
+#endif
     uint8_t err = 0;
     if (c.op == Hello) {
         if (!c.boot && !c.serial && running)
@@ -685,8 +833,13 @@ bool command(const uint8_t *buf, size_t len)
             if (running || paused || !ingestUtc(c.args[0]))
                 err = 3;
             else {
+#ifdef SNORR_SITE_HANDHELD
+                if (!site::setUsbTime(c.args[0]))
+                    err = 3;
+#else
                 clockMs = millis();
                 clockUtc = c.args[0];
+#endif
             }
             break;
         case Enroll:
@@ -736,6 +889,11 @@ bool command(const uint8_t *buf, size_t len)
             break;
         case Start:
         case Resume: {
+#ifdef SNORR_SITE_HANDHELD
+            err = 6; // This image starts RF sweeps only from its physical
+                     // controls.
+            break;
+#endif
             if (running || (c.op == Start ? paused : !paused) || c.args[0] > 1) {
                 err = 3;
                 break;

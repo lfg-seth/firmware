@@ -1,11 +1,12 @@
 #include "SerialConsole.h"
-#include "modules/DirectSurvey.h"
-#include "modules/SnorrWifi.h"
 #include "Default.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
 #include "Throttle.h"
 #include "configuration.h"
+#include "modules/DirectSurvey.h"
+#include "modules/SiteHandheld.h"
+#include "modules/SnorrWifi.h"
 #include "time.h"
 
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
@@ -180,6 +181,13 @@ bool SerialConsole::handleToRadio(const uint8_t *buf, size_t len)
         canWrite = true;
 
 #ifdef SNORR_DIRECT_SURVEY
+#ifdef SNORR_SITE_HANDHELD
+        size_t response = site::usb(buf, len, txBuf + 4, sizeof(txBuf) - 4);
+        if (response) {
+            emitTxBuffer(response);
+            return true;
+        }
+#endif
         if (survey::command(buf, len)) return true;
 #endif
         return StreamAPI::handleToRadio(buf, len);

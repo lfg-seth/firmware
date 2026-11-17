@@ -117,8 +117,14 @@ bool ButtonThread::initButton(const ButtonConfig &config)
     return true;
 }
 
+#include "modules/SiteHandheld.h"
 int32_t ButtonThread::runOnce()
 {
+#ifdef SNORR_SITE_HANDHELD
+    site::button(isButtonPressed(_pinNum));
+    canSleep = false;
+    return 15;
+#endif
     // If the button is pressed we suppress CPU sleep until release
     canSleep = true; // Assume we should not keep the board awake
 
