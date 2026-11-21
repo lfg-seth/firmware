@@ -65,9 +65,14 @@ public:
   }
 } flash;
 Store store(flash);
+#ifdef SNORR_SITE_GPS_TIME
+constexpr char waitingForTime[] = "Waiting for GPS time";
+#else
+constexpr char waitingForTime[] = "Sync USB or Wi-Fi";
 constexpr uint32_t TimeMagic = 0x5349544d;
 RTC_DATA_ATTR uint32_t clockMarker = 0;
 RTC_DATA_ATTR uint32_t syncEpoch = 0;
+#endif
 bool ready = false, storage = false, sweeping = false, manual = false;
 enum class View {
   Home,
@@ -185,7 +190,7 @@ void start(bool saved) {
     sweeping = false;
   }
   if (!clockTime()) {
-    message("Sync USB or Wi-Fi", View::Walk);
+    message(waitingForTime, View::Walk);
     return;
   }
   if (!survey::fieldReady(selected)) {
@@ -325,6 +330,9 @@ void hold() {
 }
 } // namespace
 uint32_t clockTime() {
+#ifdef SNORR_SITE_GPS_TIME
+  return getValidTime(RTCQualityGPS);
+#else
   auto ntp = getValidTime(RTCQualityNTP);
   if (ntp >= 1700000000) {
     if (clockMarker != TimeMagic || !syncEpoch)
@@ -337,8 +345,12 @@ uint32_t clockTime() {
   struct timeval tv {};
   gettimeofday(&tv, nullptr);
   return tv.tv_sec >= syncEpoch ? uint32_t(tv.tv_sec) : 0;
+#endif
 }
 bool setUsbTime(uint32_t t) {
+#ifdef SNORR_SITE_GPS_TIME
+  return false;
+#else
   if (t < 1700000000 || sweeping || view == View::Test)
     return false;
   struct timeval tv {
@@ -349,6 +361,7 @@ bool setUsbTime(uint32_t t) {
   syncEpoch = t;
   clockMarker = TimeMagic;
   return true;
+#endif
 }
 void setup() {
   edgeQueue =
@@ -528,7 +541,7 @@ void frame(Frame &f) {
     strcpy(f.title, "Site survey");
     snprintf(f.line[0], 34, "> %s", homeChoices[choice]);
     snprintf(f.line[1], 34, "%u selected", count(selected));
-    strcpy(f.line[2], clockTime() ? "Clock ready" : "Sync USB or Wi-Fi");
+    strcpy(f.line[2], clockTime() ? "Clock ready" : waitingForTime);
     strcpy(f.hint, "Tap next  Hold choose");
     break;
   case View::One:
