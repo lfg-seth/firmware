@@ -385,7 +385,7 @@ void MQTT::onClientProxyReceive(meshtastic_MqttClientProxyMessage msg)
 
 void MQTT::onReceive(char *topic, byte *payload, size_t length)
 {
-#ifdef SNORR_SD_GATEWAY
+#if defined(SNORR_SD_GATEWAY) && !defined(SNORR_GATEWAY_CLIENT)
     return;
 #endif
     if (length == 0) {

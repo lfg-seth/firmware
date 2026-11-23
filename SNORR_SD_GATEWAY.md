@@ -11,6 +11,16 @@ establishes neither broker receipt nor server ingestion. The selected
 private profile requires encryption, TLS, no JSON or proxy, no downlinks,
 no sleep, and 300-second device, power, SNNS and SNGH baselines.
 
+The opt-in `heltec-v4-sd-gateway-client` target inherits the survey responder,
+SD recorder and telemetry. It restores the normal Meshtastic rebroadcast and
+MQTT receive paths. On the selected gateway, set the role to CLIENT,
+rebroadcast mode to ALL and LoRa TX enabled. A CLIENT cancels an eligible
+pending relay when it hears another relay first. For private-channel messages,
+enable Wi-Fi, MQTT and downlink on the intended channel, use the private
+broker with TLS and encrypted protobufs, and set `lora.ignore_mqtt=false`.
+An application update preserves existing settings, including disabled
+downlinks. Configure the selected radio after updating it.
+
 ## SNSD v1
 
 `heltec-v4-sd-gateway-survey` retains this gateway profile and adds the
