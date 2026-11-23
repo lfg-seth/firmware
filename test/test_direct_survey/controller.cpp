@@ -266,6 +266,39 @@ int main()
         assert(timeouts == 1 && successes == 1 && (attempt != oldAttempt || !pendingId));
         fakeRouter.surveyProfileKnown = false;
         assert(!canStart() && suppress(fakeRouter.packet));
+
+        fakeRouter.surveyProfileKnown = true;
+        apply(make(Stop, 14));
+        meshtastic_Position current{0, 0, 0, 1800000020, 1, 6};
+        fix(current, 0, 0, true, true);
+        beat.serial = 15;
+        apply(beat);
+        start.serial = 16;
+        start.args[0] = 0;
+        apply(start);
+        assert(running && !bench);
+        ticks += 2100;
+        beat.serial = 17;
+        beat.count = 9;
+        beat.args[0] = 100;
+        beat.args[1] = 1800000022;
+        beat.args[2] = 120;
+        beat.args[3] = 362500000;
+        beat.args[4] = uint32_t(-1156500000);
+        beat.args[5] = 2250;
+        beat.args[6] = 3;
+        beat.args[7] = 1;
+        beat.args[8] = 12;
+        apply(beat);
+        assert(!fresh(gps, ticks));
+        poll();
+        assert(running && !paused && pendingId && !suppress(fakeRouter.packet));
+        ticks += 3000;
+        beat.serial = 18;
+        apply(beat);
+        assert(suppress(fakeRouter.packet));
+        poll();
+        assert(paused && !running && !pendingId);
     }
 #ifdef SNORR_SURVEY_CLIENT
     checkExpandedEnrollment();

@@ -21,6 +21,12 @@ constexpr bool IS_CLIENT = true;
 #else
 constexpr bool IS_CLIENT = false;
 #endif
+#if defined(SNORR_SURVEY_CLIENT) && !defined(SNORR_SITE_HANDHELD)
+constexpr bool HAS_LAPTOP_FIX = true;
+#else
+constexpr bool HAS_LAPTOP_FIX = false;
+#endif
+constexpr uint32_t LAPTOP_FIX_MAX_AGE = 3000;
 constexpr unsigned LEGACY_PEERS = 8;
 constexpr unsigned MAX_PEERS = IS_CLIENT ? 12 : LEGACY_PEERS;
 constexpr unsigned MAX_TARGETS = IS_CLIENT ? sizeof(Command::args) / sizeof(uint32_t) : LEGACY_PEERS;
@@ -63,8 +69,10 @@ struct Fix {
     uint32_t stamp, epoch;
     uint16_t frac;
     uint8_t quality, satellites;
+    bool laptop = false;
 };
-Fix gps{}, atSend{};
+Fix gps{}, laptopGps{}, atSend{};
+bool laptopProtocol = false;
 struct Event {
     char text[240];
 };
@@ -244,25 +252,52 @@ void tag(const uint8_t key[32], const Frame &frame, uint32_t source, uint32_t pa
 }
 bool fresh(const Fix &f, uint32_t now)
 {
-    return f.known && recent(now, f.stamp, settings.gpsAge);
+    return f.known && recent(now, f.stamp, f.laptop ? LAPTOP_FIX_MAX_AGE : settings.gpsAge);
+}
+const Fix &surveyFix(uint32_t now)
+{
+    if (HAS_LAPTOP_FIX && !fresh(gps, now) && fresh(laptopGps, now))
+        return laptopGps;
+    return gps;
+}
+bool laptopHeartbeat(const Command &c, uint32_t now)
+{
+    if (!c.count) {
+        laptopGps.known = false;
+        return true;
+    }
+    const auto &a = c.args;
+    int32_t lat = int32_t(a[3]), lon = int32_t(a[4]);
+    if (c.count != 9 || a[0] > LAPTOP_FIX_MAX_AGE || a[1] < 1700000000 || a[2] >= 1000 ||
+        lat < -900000000 || lat > 900000000 || lon < -1800000000 || lon > 1800000000 || a[6] > 3 ||
+        a[7] < 1 || a[7] > 5 || a[8] > 255) {
+        laptopGps.known = false;
+        return false;
+    }
+    if (a[1] < laptopGps.epoch || (a[1] == laptopGps.epoch && a[2] <= laptopGps.frac))
+        return true;
+    laptopGps = {true, bool(a[6] & 1), bool(a[6] & 2), lat, lon, int32_t(a[5]), now - a[0], a[1],
+                 uint16_t(a[2]), uint8_t(a[7]), uint8_t(a[8]), true};
+    return true;
 }
 void sendFix(const char *name, const Fix &f, uint32_t now, uint32_t attemptId)
 {
     bool ok = fresh(f, now);
-    emit(name, "%u,%u,%u,%ld,%ld,%ld,%u,%u,%u,%u,%u,%u,%u", session, attemptId, ok, (long)(ok ? f.lat : 0),
+    emit(name, "%u,%u,%u,%ld,%ld,%ld,%u,%u,%u,%u,%u,%u,%u%s", session, attemptId, ok, (long)(ok ? f.lat : 0),
          (long)(ok ? f.lon : 0), (long)(ok ? f.height : 0), ok && f.alt, ok ? f.epoch : 0, ok ? f.frac : 0,
-         f.known ? now - f.stamp : UINT32_MAX, ok ? f.quality : 0, ok && f.sats, ok ? f.satellites : 0);
+         f.known ? now - f.stamp : UINT32_MAX, ok ? f.quality : 0, ok && f.sats, ok ? f.satellites : 0, ok && f.laptop ? ",1" : "");
 }
 void snapshot()
 {
     const auto q = router->getQueueStatus();
-    emit("state", "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+    emit("state", "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u%s",
          running  ? 1
          : paused ? 2
                   : 0,
          bench, session, segment, targetCount ? targetIds[cursor % targetCount] : 0, interval, quiet.remaining(millis()), dropped,
          q.free, q.maxlen, successes, timeouts, deferred, rejected, suppressed, fresh(gps, millis()),
-         lastBeat && recent(millis(), lastBeat, settings.heartbeatTimeout), lastSerial);
+         lastBeat && recent(millis(), lastBeat, settings.heartbeatTimeout), lastSerial,
+         laptopProtocol ? (fresh(laptopGps, millis()) ? ",1" : ",0") : "");
     emit("profile", "%u,%u,%u", experimental, config.lora.modem_preset, router->surveyProfileKnown);
     emit("settings", "%u,%u,%u,%u,%u,%u,%u,%u,%u", settings.interval, settings.timeout, settings.maxInterval, settings.gpsAge,
          settings.heartbeatTimeout, settings.gpsInterval, settings.utilTarget, settings.utilHigh, settings.adaptive);
@@ -342,7 +377,7 @@ uint32_t ingestUtc(uint32_t clock)
 bool canStart()
 {
     return IS_CLIENT && router->surveyProfileKnown && generation && targetCount && utc() && config.lora.tx_enabled &&
-           config.lora.region && !config.lora.override_duty_cycle && (bench || fresh(gps, millis()));
+           config.lora.region && !config.lora.override_duty_cycle && (bench || fresh(surveyFix(millis()), millis()));
 }
 bool sendFrame(Frame &f, int peer, uint32_t &id)
 {
@@ -608,7 +643,7 @@ bool suppress(const meshtastic_MeshPacket &p)
                !recent(millis(), queuedAt, settings.timeout);
 #else
         return !running || p.id != pendingId || !recent(millis(), lastBeat, settings.heartbeatTimeout) ||
-               (!bench && !fresh(gps, millis())) || !recent(millis(), queuedAt, settings.timeout);
+               (!bench && !fresh(surveyFix(millis()), millis())) || !recent(millis(), queuedAt, settings.timeout);
 #endif
     return false;
 }
@@ -696,7 +731,7 @@ void txStart(const meshtastic_MeshPacket &p, size_t bytes, uint32_t predictedMs)
         txAt = millis();
         txBytes = bytes;
         txEstimate = predictedMs;
-        sendFix("txfix", gps, txAt, attempt);
+        sendFix("txfix", surveyFix(txAt), txAt, attempt);
     }
     emit("tx", "%u,%u,%u", p.id, unsigned(bytes), predictedMs);
 }
@@ -730,7 +765,7 @@ void poll()
 #else
     if (running && (!config.security.serial_enabled || !recent(now, lastBeat, settings.heartbeatTimeout)))
         halt("transport_lost", true);
-    if (running && !bench && !fresh(gps, now))
+    if (running && !bench && !fresh(surveyFix(now), now))
         halt("gps_stale", true);
 #endif
     if (running && pendingId && !recent(now, queuedAt, settings.timeout)) {
@@ -771,7 +806,7 @@ void poll()
     lastFieldAttempt = now;
     fieldGap = interval;
 #endif
-    atSend = gps;
+    atSend = surveyFix(now);
     sendFix("sendfix", atSend, now, attempt);
     emit("attempt", "%u,%u,%u,%u,%u,%u,%u,%u", session, segment, attempt, pendingTarget, bench, queuedAt, interval, util);
     if (!q.free || (settings.adaptive && util >= settings.utilHigh)) {
@@ -812,11 +847,15 @@ bool command(const uint8_t *buf, size_t len)
 #endif
     uint8_t err = 0;
     if (c.op == Hello) {
-        if (!c.boot && !c.serial && running)
-            halt("host_reconnected", true);
-        emit("hello", "%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", nodeDB->getNodeNum(), optstr(APP_VERSION), IS_CLIENT, HW_VENDOR,
+        if (!c.boot && !c.serial) {
+            laptopGps = {};
+            if (running)
+                halt("host_reconnected", true);
+        }
+        laptopProtocol = HAS_LAPTOP_FIX && c.count == 1 && c.args[0] == 1;
+        emit("hello", "%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u%s", nodeDB->getNodeNum(), optstr(APP_VERSION), IS_CLIENT, HW_VENDOR,
              config.lora.region, config.lora.modem_preset, config.lora.channel_num, (unsigned)config.lora.tx_power,
-             config.lora.use_preset, config.lora.tx_enabled, lastSerial, generation != 0);
+             config.lora.use_preset, config.lora.tx_enabled, lastSerial, generation != 0, laptopProtocol ? ",1" : "");
         snapshot();
     } else if (c.boot != boot || !c.serial)
         err = 1;
@@ -832,6 +871,8 @@ bool command(const uint8_t *buf, size_t len)
             break;
         case Heartbeat:
             lastBeat = millis();
+            if (HAS_LAPTOP_FIX && !laptopHeartbeat(c, lastBeat))
+                err = 3;
             break;
         case Clock:
             if (running || paused || !ingestUtc(c.args[0]))
@@ -915,7 +956,7 @@ bool command(const uint8_t *buf, size_t len)
                 bench = c.args[0];
             if (!canStart() || !lastBeat || !recent(millis(), lastBeat, settings.heartbeatTimeout)) {
                 err = 5;
-                emit("fault", !bench && !fresh(gps, millis()) ? "gps_stale" : "start_interlock");
+                emit("fault", !bench && !fresh(surveyFix(millis()), millis()) ? "gps_stale" : "start_interlock");
                 break;
             }
             if (c.op == Start) {
